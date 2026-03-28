@@ -23,6 +23,21 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Verify Actions secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SHOPIFY_TOKEN:-}" ] && missing+=(SHOPIFY_TOKEN)
+          [ -z "${SHOPIFY_STORE:-}" ] && missing+=(SHOPIFY_STORE)
+          [ -z "${AMROD_USERNAME:-}" ] && missing+=(AMROD_USERNAME)
+          [ -z "${AMROD_PASSWORD:-}" ] && missing+=(AMROD_PASSWORD)
+          [ -z "${AMROD_CUSTOMER_CODE:-}" ] && missing+=(AMROD_CUSTOMER_CODE)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error title=Missing repository secrets::Add these under Settings → Secrets and variables → Actions (Repository secrets): ${missing[*]}"
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
