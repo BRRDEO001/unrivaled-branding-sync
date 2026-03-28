@@ -6,6 +6,7 @@ on:
 jobs:
   import_branding_pricing:
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 20
 
     env:
@@ -34,7 +35,7 @@ jobs:
           [ -z "${AMROD_PASSWORD:-}" ] && missing+=(AMROD_PASSWORD)
           [ -z "${AMROD_CUSTOMER_CODE:-}" ] && missing+=(AMROD_CUSTOMER_CODE)
           if [ "${#missing[@]}" -ne 0 ]; then
-            echo "::error title=Missing repository secrets::Add these under Settings → Secrets and variables → Actions (Repository secrets): ${missing[*]}"
+            echo "::error title=Missing secrets::Job uses environment: synced. Add these under Settings → Environments → synced → Environment secrets (or repository secrets): ${missing[*]}"
             exit 1
           fi
 

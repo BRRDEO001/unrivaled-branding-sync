@@ -6,6 +6,7 @@ on:
 jobs:
   category_tree:
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 60
 
     env:
@@ -47,6 +48,7 @@ jobs:
   product_import:
     needs: category_tree
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 330
 
     strategy:

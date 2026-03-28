@@ -6,6 +6,7 @@ on:
 jobs:
   sync-categories:
     runs-on: ubuntu-latest
+    environment: synced
 
     steps:
       - uses: actions/checkout@v3

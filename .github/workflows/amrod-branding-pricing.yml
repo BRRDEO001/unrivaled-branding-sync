@@ -6,6 +6,7 @@ on:
 jobs:
   sync_pricing:
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 20
 
     env:

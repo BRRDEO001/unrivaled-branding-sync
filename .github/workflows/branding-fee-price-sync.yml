@@ -6,6 +6,7 @@ on:
 jobs:
   branding-prices:
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 60
 
     env:

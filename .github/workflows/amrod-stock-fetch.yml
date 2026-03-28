@@ -6,6 +6,7 @@ on:
 jobs:
   stock:
     runs-on: ubuntu-latest
+    environment: synced
     timeout-minutes: 180
 
     env:
