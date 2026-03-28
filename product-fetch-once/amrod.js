@@ -5,6 +5,33 @@ import {
   AMROD_AUTH_DETAILS,
 } from "./config.js";
 
+async function readJsonResponse(res, context) {
+  const text = await res.text();
+  const ct = res.headers.get("content-type") || "";
+  if (!text?.trim()) {
+    throw new Error(
+      `${context}: empty response body (status ${res.status}, content-type: ${ct || "none"})`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const preview = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+    throw new Error(
+      `${context}: invalid JSON (${e?.message || e}). Body (${text.length} chars): ${preview}`
+    );
+  }
+}
+
+function normalizeAmrodProductsList(data) {
+  if (Array.isArray(data)) return data;
+  const fromProducts = data?.Products ?? data?.products;
+  if (Array.isArray(fromProducts)) return fromProducts;
+  throw new Error(
+    "Amrod products response was not an array and had no Products[] — check API shape"
+  );
+}
+
 // Built-in Node fetch retry wrapper (no undici dependency required)
 async function fetchWithRetry(url, options = {}, opts = {}) {
   const { retries = 6, baseDelayMs = 800, timeoutMs = 60_000 } = opts;
@@ -72,16 +99,29 @@ export const fetchAmrodToken = async () => {
     body: JSON.stringify(AMROD_AUTH_DETAILS),
   });
 
-  const data = await res.json();
-  if (!data.token) throw new Error("No Amrod token returned");
-  return data.token;
+  const data = await readJsonResponse(res, "Amrod auth");
+  const tok = data?.token ?? data?.Token;
+  if (!tok) throw new Error("No Amrod token returned");
+  return tok;
 };
 
 export const fetchAmrodProducts = async (token) => {
-  const res = await fetchWithRetry(AMROD_PRODUCTS_ENDPOINT, {
+  const code = String(AMROD_AUTH_DETAILS?.CustomerCode || "").trim();
+  if (!code) {
+    throw new Error(
+      "AMROD_CUSTOMER_CODE missing — GetProductsAndBranding needs ?CustomerCode= in GitHub/env"
+    );
+  }
+
+  const url = `${AMROD_PRODUCTS_ENDPOINT}?CustomerCode=${encodeURIComponent(code)}`;
+  const res = await fetchWithRetry(url, {
     method: "GET",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
   });
 
-  return res.json();
+  const raw = await readJsonResponse(res, "Amrod GetProductsAndBranding");
+  return normalizeAmrodProductsList(raw);
 };
