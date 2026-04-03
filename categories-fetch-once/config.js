@@ -9,5 +9,7 @@ export const AMROD_AUTH_DETAILS = {
 
 export const AMROD_AUTH_ENDPOINT = 'https://identity.amrod.co.za/VendorLogin';
 export const AMROD_CATEGORIES_ENDPOINT = 'https://vendorapi.amrod.co.za/api/v1/Categories/';
+export const AMROD_CATEGORIES_UPDATED_ENDPOINT =
+  'https://vendorapi.amrod.co.za/api/v1/Categories/GetUpdated';
 export const REQUEST_DELAY_MS = 600;
 export const SHOPIFY_MENU_HANDLE = 'main-menu';

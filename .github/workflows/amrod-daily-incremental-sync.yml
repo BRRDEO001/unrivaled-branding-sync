@@ -1,0 +1,51 @@
+# Sequential: GetUpdated products+branding → GetUpdated prices → full Stock/ → Shopify.
+# Default schedule: 01:00 South Africa (SAST, UTC+2) ≈ 23:00 UTC.
+name: Amrod daily incremental (products, prices, stock)
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  incremental:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 360
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
+      INCREMENTAL_CONCURRENCY: "2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Incremental products (GetUpdatedProductsAndBranding)
+        working-directory: product-fetch-once
+        run: node incremental-products.js
+
+      - name: Incremental prices (Prices/GetUpdated)
+        working-directory: product-fetch-once
+        run: node incremental-prices.js
+
+      - name: Full stock → Shopify inventory
+        working-directory: product-fetch-once
+        run: node stock-apply-full.js
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-incremental-logs
+          path: product-fetch-once/logs/
+          if-no-files-found: ignore

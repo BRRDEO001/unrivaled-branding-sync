@@ -1,6 +1,13 @@
 // config.js
 export const AMROD_AUTH_ENDPOINT = "https://identity.amrod.co.za/VendorLogin";
 export const AMROD_PRODUCTS_ENDPOINT = "https://vendorapi.amrod.co.za/api/v1/Products/GetProductsAndBranding";
+export const AMROD_UPDATED_PRODUCTS_ENDPOINT =
+  "https://vendorapi.amrod.co.za/api/v1/Products/GetUpdatedProductsAndBranding";
+export const AMROD_UPDATED_PRICES_ENDPOINT =
+  "https://vendorapi.amrod.co.za/api/v1/Prices/GetUpdated";
+export const AMROD_STOCK_ALL_ENDPOINT = "https://vendorapi.amrod.co.za/api/v1/Stock/";
+export const AMROD_STOCK_UPDATED_ENDPOINT =
+  "https://vendorapi.amrod.co.za/api/v1/Stock/GetUpdated";
 
 export const AMROD_AUTH_DETAILS = {
   Username: process.env.AMROD_USERNAME,
@@ -11,7 +18,6 @@ export const AMROD_AUTH_DETAILS = {
 export const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
 export const SHOPIFY_TOKEN = process.env.SHOPIFY_TOKEN;
 
-// Shopify stable versions are quarterly; 2026-01 is valid in docs. :contentReference[oaicite:1]{index=1}
 export const SHOPIFY_API_VERSION = "2026-01";
 
 export const AMROD_TEST_LIMIT = process.env.AMROD_TEST_LIMIT

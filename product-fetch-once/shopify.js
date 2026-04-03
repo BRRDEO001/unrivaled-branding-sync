@@ -63,7 +63,9 @@ export const shopifyFetch = async (endpoint, method = "GET", body, opts = {}) =>
         throw new Error(`Shopify error ${res.status}: ${await res.text()}`);
       }
 
-      return await res.json();
+      const text = await res.text();
+      if (!text?.trim()) return {};
+      return JSON.parse(text);
     } catch (err) {
       lastErr = err;
 
@@ -165,6 +167,66 @@ export const createShopifyVariant = async (productId, variantBody) => {
     variant: variantBody,
   });
   return res.variant;
+};
+
+export const deleteShopifyProduct = async (legacyProductId) => {
+  await shopifyFetch(`products/${legacyProductId}.json`, "DELETE");
+};
+
+export const setInventoryLevel = async (inventoryItemId, locationId, available) => {
+  await shopifyFetch(`inventory_levels/set.json`, "POST", {
+    location_id: locationId,
+    inventory_item_id: inventoryItemId,
+    available,
+  });
+};
+
+function legacyFromGid(gid) {
+  if (gid == null) return null;
+  if (typeof gid === "number") return gid;
+  const m = String(gid).match(/(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+const VARIANT_LOOKUP = `
+  query VariantLookup($q: String!) {
+    productVariants(first: 8, query: $q) {
+      nodes {
+        id
+        legacyResourceId
+        sku
+        inventoryItem {
+          id
+          legacyResourceId
+        }
+        product {
+          legacyResourceId
+        }
+      }
+    }
+  }
+`;
+
+/** First matching variant for ordered SKU candidates (prefers exact sku match). */
+export const findShopifyVariantBySkuCandidates = async (skus) => {
+  const cleaned = [...new Set(skus.map((s) => String(s || "").trim()).filter(Boolean))];
+  for (const sku of cleaned) {
+    const data = await shopifyGraphql(VARIANT_LOOKUP, { q: `sku:${sku}` });
+    const nodes = data?.productVariants?.nodes || [];
+    if (!nodes.length) continue;
+    const exact = nodes.find((n) => n.sku === sku) || nodes[0];
+    const invLegacy =
+      exact.inventoryItem?.legacyResourceId != null
+        ? Number(exact.inventoryItem.legacyResourceId)
+        : legacyFromGid(exact.inventoryItem?.id);
+    return {
+      variantId: Number(exact.legacyResourceId),
+      sku: exact.sku,
+      productId: Number(exact.product?.legacyResourceId),
+      inventoryItemId: invLegacy,
+    };
+  }
+  return null;
 };
 
 /**

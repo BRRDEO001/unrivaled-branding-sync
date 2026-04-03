@@ -3,7 +3,20 @@ import {
   AMROD_AUTH_ENDPOINT,
   AMROD_PRODUCTS_ENDPOINT,
   AMROD_AUTH_DETAILS,
+  AMROD_UPDATED_PRODUCTS_ENDPOINT,
+  AMROD_UPDATED_PRICES_ENDPOINT,
+  AMROD_STOCK_ALL_ENDPOINT,
+  AMROD_STOCK_UPDATED_ENDPOINT,
 } from "./config.js";
+
+function requireCustomerCodeUrl(baseUrl) {
+  const code = String(AMROD_AUTH_DETAILS?.CustomerCode || "").trim();
+  if (!code) {
+    throw new Error("AMROD_CUSTOMER_CODE missing (required for Amrod vendor API query)");
+  }
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${sep}CustomerCode=${encodeURIComponent(code)}`;
+}
 
 async function readJsonResponse(res, context) {
   const text = await res.text();
@@ -21,6 +34,29 @@ async function readJsonResponse(res, context) {
       `${context}: invalid JSON (${e?.message || e}). Body (${text.length} chars): ${preview}`
     );
   }
+}
+
+/** 204 / empty body → null; otherwise parsed JSON (object or array). */
+async function readJsonOptional(res, context) {
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text?.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    const preview = text.length > 400 ? `${text.slice(0, 400)}…` : text;
+    throw new Error(
+      `${context}: invalid JSON (${e?.message || e}). Body (${text.length} chars): ${preview}`
+    );
+  }
+}
+
+function coerceJsonArray(data, context) {
+  if (data == null) return [];
+  if (Array.isArray(data)) return data;
+  const inner = data?.Products ?? data?.products ?? data?.items ?? data?.data;
+  if (Array.isArray(inner)) return inner;
+  throw new Error(`${context}: expected a JSON array or wrapper with Products[]`);
 }
 
 function normalizeAmrodProductsList(data) {
@@ -124,4 +160,39 @@ export const fetchAmrodProducts = async (token) => {
 
   const raw = await readJsonResponse(res, "Amrod GetProductsAndBranding");
   return normalizeAmrodProductsList(raw);
+};
+
+const amrodGetJson = (url, token) =>
+  fetchWithRetry(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+export const fetchUpdatedProductsAndBranding = async (token) => {
+  const url = requireCustomerCodeUrl(AMROD_UPDATED_PRODUCTS_ENDPOINT);
+  const res = await amrodGetJson(url, token);
+  const raw = await readJsonOptional(res, "Amrod GetUpdatedProductsAndBranding");
+  return coerceJsonArray(raw, "Amrod GetUpdatedProductsAndBranding");
+};
+
+export const fetchUpdatedPrices = async (token) => {
+  const url = requireCustomerCodeUrl(AMROD_UPDATED_PRICES_ENDPOINT);
+  const res = await amrodGetJson(url, token);
+  const raw = await readJsonOptional(res, "Amrod Prices GetUpdated");
+  return coerceJsonArray(raw, "Amrod Prices GetUpdated");
+};
+
+export const fetchStockAll = async (token) => {
+  const res = await amrodGetJson(AMROD_STOCK_ALL_ENDPOINT, token);
+  const raw = await readJsonOptional(res, "Amrod Stock (all)");
+  return coerceJsonArray(raw, "Amrod Stock (all)");
+};
+
+export const fetchStockUpdated = async (token) => {
+  const res = await amrodGetJson(AMROD_STOCK_UPDATED_ENDPOINT, token);
+  const raw = await readJsonOptional(res, "Amrod Stock GetUpdated");
+  return coerceJsonArray(raw, "Amrod Stock GetUpdated");
 };

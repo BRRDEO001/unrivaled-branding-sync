@@ -1,0 +1,32 @@
+# If Categories/GetUpdated returns rows, runs full Categories/ sync (menu + metafield).
+# Same local-time slot as incremental sync, offset by 15m to reduce concurrent API load.
+name: Amrod daily categories (GetUpdated gate)
+
+on:
+  schedule:
+    - cron: "15 23 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  categories:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 30
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Categories incremental gate + full sync
+        working-directory: categories-fetch-once
+        run: node daily-incremental.js
