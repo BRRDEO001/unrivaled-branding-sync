@@ -1,8 +1,8 @@
-# Sequential data flow: products (GetUpdated) → one full Stock/ snapshot → parallel sharded
-# incremental prices + stock apply (REST). Bulk pricing in this repo is only price-fetch-once.
+# products (GetUpdated) → one Stock/ snapshot → sharded incremental prices + stock (REST).
+# max-parallel: 1 = one shard at a time (avoids concurrent REST bursts and Shopify throttling).
 # Cron: ~01:00 SAST (UTC+2) → 23:00 UTC.
 #
-# Sharding: set SHARD_COUNT and matrix.shard to the same cardinality (e.g. 8 shards → 0..7).
+# Sharding: keep SHARD_COUNT in sync with matrix.shard (default 4 → 0..3). Use 2 or 1 if still rate-limited.
 name: Amrod daily incremental (products, prices, stock)
 
 on:
@@ -77,9 +77,9 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 1
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3]
 
     env:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
@@ -89,7 +89,8 @@ jobs:
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
       SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
-      SHARD_COUNT: "8"
+      SHOPIFY_PRICE_DELAY_MS: "250"
+      SHARD_COUNT: "4"
       SHARD_INDEX: ${{ matrix.shard }}
       AMROD_STOCK_JSON: data/amrod-stock.json
 

@@ -1,6 +1,8 @@
 # Variant map + one Amrod /Prices/ download, then sharded bulk applies (sequential bulks:
 # Shopify allows only one bulk mutation at a time per shop — max-parallel: 1).
-# To change shard count: update SHARD_COUNT and the matrix.shard list together.
+# Fewer/larger shards = fewer sequential bulk jobs (Shopify: one bulk mutation at a time per shop).
+# To change shard count: update SHARD_COUNT and matrix.shard together. Avoid high shard counts unless
+# you need shorter per-job runtime; it does not increase concurrency (max-parallel: 1).
 name: (Bulk) Fetch Product Pricing Once
 
 on:
@@ -70,7 +72,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3]
 
     env:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
@@ -80,7 +82,7 @@ jobs:
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
       # Must match the number of entries in matrix.shard below
-      SHARD_COUNT: "8"
+      SHARD_COUNT: "4"
       SHARD_INDEX: ${{ matrix.shard }}
       AMROD_PRICES_JSON: data/amrod-prices.json
 
