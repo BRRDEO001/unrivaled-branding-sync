@@ -57,6 +57,20 @@ function computePrice(base) {
   return sell.toFixed(2);
 }
 
+/** Same convention as product import matrix: idx % SHARD_COUNT === SHARD_INDEX */
+function filterByShard(arr) {
+  const n = Math.max(1, Number(process.env.SHARD_COUNT || 1));
+  const i = Number(process.env.SHARD_INDEX || 0);
+  if (!Array.isArray(arr) || n <= 1) return arr;
+  return arr.filter((_, idx) => idx % n === i);
+}
+
+function shardSuffix() {
+  const n = Math.max(1, Number(process.env.SHARD_COUNT || 1));
+  const i = Number(process.env.SHARD_INDEX || 0);
+  return n > 1 ? `-shard-${i}` : "";
+}
+
 async function fetchJson(url, opts = {}) {
   const res = await fetch(url, opts);
   if (!res.ok) throw new Error(await res.text());
@@ -291,22 +305,47 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
   ensureDir("logs");
 
   const variantMap = JSON.parse(fs.readFileSync("data/variant-map.json", "utf8"));
+  const suf = shardSuffix();
 
-  // open stream for sku-not-found logs
-  const skuNotFoundPath = path.join("logs", "sku-not-found.jsonl");
+  const skuNotFoundPath = path.join("logs", `sku-not-found${suf}.jsonl`);
   const skuNotFoundStream = fs.createWriteStream(skuNotFoundPath, { flags: "w" });
 
-  console.log("🔐 Fetching Amrod token...");
-  const auth = await fetchJson(AMROD_AUTH_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(AMROD_AUTH_DETAILS),
-  });
+  let prices;
 
-  console.log("💰 Fetching Amrod prices...");
-  const prices = await fetchJson(AMROD_PRICES_ENDPOINT, {
-    headers: { Authorization: `Bearer ${auth.token}` },
-  });
+  const fromFile = process.env.AMROD_PRICES_JSON;
+  if (fromFile) {
+    console.log(`💰 Loading Amrod prices from ${fromFile} ...`);
+    const raw = JSON.parse(fs.readFileSync(fromFile, "utf8"));
+    prices = Array.isArray(raw) ? raw : raw?.prices ?? raw?.Prices ?? raw?.data;
+    if (!Array.isArray(prices)) {
+      throw new Error("AMROD_PRICES_JSON must contain an array (or prices[])");
+    }
+  } else {
+    console.log("🔐 Fetching Amrod token...");
+    const auth = await fetchJson(AMROD_AUTH_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(AMROD_AUTH_DETAILS),
+    });
+
+    const tok = auth?.token ?? auth?.Token;
+    if (!tok) throw new Error("Amrod auth: no token");
+
+    console.log("💰 Fetching Amrod prices...");
+    const raw = await fetchJson(AMROD_PRICES_ENDPOINT, {
+      headers: { Authorization: `Bearer ${tok}` },
+    });
+    prices = Array.isArray(raw) ? raw : raw?.prices ?? raw?.Prices ?? raw?.data;
+    if (!Array.isArray(prices)) {
+      throw new Error("Amrod prices response: expected array (or wrapper with prices[])");
+    }
+  }
+
+  const before = prices.length;
+  prices = filterByShard(prices);
+  console.log(
+    `🔢 Shard filter: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${process.env.SHARD_INDEX || 0} → ${prices.length}/${before} rows`
+  );
 
   console.log("🧾 Building JSONL updates...");
   const { lines, matched, skipped, skippedBreakdown } = buildJsonlLines({
@@ -324,7 +363,7 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
     process.exit(0);
   }
 
-  const jsonlPath = path.join("data", "variant-price-updates.jsonl");
+  const jsonlPath = path.join("data", `variant-price-updates${suf}.jsonl`);
   fs.writeFileSync(jsonlPath, lines.join("\n") + "\n", "utf8");
 
   console.log(`✅ JSONL created: ${jsonlPath} (updates=${lines.length}, skipped=${skipped})`);
@@ -378,7 +417,7 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
 
   // Persist result URL for later inspection
   fs.writeFileSync(
-    path.join("logs", "bulk-op-result.json"),
+    path.join("logs", `bulk-op-result${suf}.json`),
     JSON.stringify(
       { operationId: finished.id, url: finished.url, completedAt: finished.completedAt },
       null,
@@ -388,8 +427,8 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
   );
 
   // Download results and log failures
-  const errorsPath = path.join("logs", "bulk-op-errors.jsonl");
-  const summaryPath = path.join("logs", "bulk-op-summary.json");
+  const errorsPath = path.join("logs", `bulk-op-errors${suf}.jsonl`);
+  const summaryPath = path.join("logs", `bulk-op-summary${suf}.json`);
 
   console.log("⬇️ Downloading bulk results + logging failures...");
   const summary = await downloadAndLogBulkFailures({

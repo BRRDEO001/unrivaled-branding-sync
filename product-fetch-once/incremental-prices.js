@@ -28,12 +28,23 @@ function computeSellPrice(base) {
   return sell.toFixed(2);
 }
 
+function filterByShard(arr) {
+  const n = Math.max(1, Number(process.env.SHARD_COUNT || 1));
+  const i = Number(process.env.SHARD_INDEX || 0);
+  if (!Array.isArray(arr) || n <= 1) return arr;
+  return arr.filter((_, idx) => idx % n === i);
+}
+
 export async function runIncrementalPricesSync() {
   const token = await fetchAmrodToken();
-  const rows = await fetchUpdatedPrices(token);
-  console.log(`📬 Prices GetUpdated: ${rows.length} row(s)`);
+  let rows = await fetchUpdatedPrices(token);
+  const total = rows.length;
+  rows = filterByShard(rows);
+  console.log(
+    `📬 Prices GetUpdated: ${rows.length}/${total} row(s) (shard ${process.env.SHARD_INDEX || 0}/${process.env.SHARD_COUNT || 1})`
+  );
   if (!rows.length) {
-    console.log("✅ No price updates from Amrod");
+    console.log("✅ No price rows for this shard");
     return;
   }
 

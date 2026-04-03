@@ -1,19 +1,45 @@
+# Variant map + one Amrod /Prices/ download, then sharded bulk applies (sequential bulks:
+# Shopify allows only one bulk mutation at a time per shop — max-parallel: 1).
+# To change shard count: update SHARD_COUNT and the matrix.shard list together.
 name: (Bulk) Fetch Product Pricing Once
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  pricing:
+  variant-map:
     runs-on: ubuntu-latest
     environment: synced
-    timeout-minutes: 180
+    timeout-minutes: 120
 
     env:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
       SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
       SHOPIFY_API_VERSION: "2026-01"
 
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build variant map (SKU → Variant GID)
+        working-directory: price-fetch-once
+        run: node prices-build-variant-map.js
+
+      - uses: actions/upload-artifact@v4
+        name: Upload variant-map.json
+        with:
+          name: pricing-variant-map
+          path: price-fetch-once/data/variant-map.json
+
+  amrod-prices-file:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 60
+
+    env:
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
@@ -25,10 +51,65 @@ jobs:
         with:
           node-version: 20
 
-      - name: Build variant map (SKU -> Variant GID)
+      - name: Download Amrod prices to JSON (once)
         working-directory: price-fetch-once
-        run: node prices-build-variant-map.js
+        run: node download-amrod-prices.js
 
-      - name: Apply prices (Bulk operation)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pricing-amrod-prices
+          path: price-fetch-once/data/amrod-prices.json
+
+  pricing:
+    needs: [variant-map, amrod-prices-file]
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 720
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+      # Must match the number of entries in matrix.shard below
+      SHARD_COUNT: "8"
+      SHARD_INDEX: ${{ matrix.shard }}
+      AMROD_PRICES_JSON: data/amrod-prices.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pricing-variant-map
+          path: .
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pricing-amrod-prices
+          path: .
+
+      - name: Apply prices (bulk, sharded)
         working-directory: price-fetch-once
         run: node price-apply-bulk.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pricing-bulk-logs-shard-${{ matrix.shard }}
+          path: |
+            price-fetch-once/logs/
+            price-fetch-once/data/variant-price-updates-shard-${{ matrix.shard }}.jsonl
+          if-no-files-found: ignore

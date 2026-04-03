@@ -3,6 +3,7 @@
  * GET /api/v1/Stock/ (full list) → Shopify inventory per SHOPIFY_LOCATION_IDS.
  * Run after Amrod’s daily stock window (e.g. 00:30 SAST); sums `stock` by variant fullCode.
  */
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { fetchAmrodToken, fetchStockAll } from "./amrod.js";
 import { findShopifyVariantBySkuCandidates, setInventoryLevel } from "./shopify.js";
@@ -21,6 +22,13 @@ function aggregateStock(rows) {
   return m;
 }
 
+function filterEntriesByShard(entries) {
+  const n = Math.max(1, Number(process.env.SHARD_COUNT || 1));
+  const i = Number(process.env.SHARD_INDEX || 0);
+  if (n <= 1) return entries;
+  return entries.filter((_, idx) => idx % n === i);
+}
+
 export async function runStockFullSyncToShopify() {
   const locRaw = process.env.SHOPIFY_LOCATION_IDS;
   if (!locRaw?.trim()) {
@@ -29,17 +37,35 @@ export async function runStockFullSyncToShopify() {
   }
   const locations = locRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const token = await fetchAmrodToken();
-  const rows = await fetchStockAll(token);
-  console.log(`📬 Stock (all): ${rows.length} row(s) raw`);
+  const fromFile = process.env.AMROD_STOCK_JSON;
+  let rows;
+
+  if (fromFile) {
+    console.log(`📂 Loading stock from ${fromFile} ...`);
+    rows = JSON.parse(fs.readFileSync(fromFile, "utf8"));
+    if (!Array.isArray(rows)) throw new Error("AMROD_STOCK_JSON must be a JSON array");
+  } else {
+    const token = await fetchAmrodToken();
+    rows = await fetchStockAll(token);
+    console.log(`📬 Stock (all): ${rows.length} row(s) raw`);
+  }
 
   const bySku = aggregateStock(rows);
   console.log(`📊 Unique variant SKUs: ${bySku.size}`);
 
+  let entries = Array.from(bySku.entries()).sort((a, b) =>
+    String(a[0]).localeCompare(String(b[0]), "en")
+  );
+  const before = entries.length;
+  entries = filterEntriesByShard(entries);
+  console.log(
+    `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${process.env.SHARD_INDEX || 0} → ${entries.length}/${before} SKUs`
+  );
+
   let ok = 0;
   let miss = 0;
 
-  for (const [fullCode, qty] of bySku) {
+  for (const [fullCode, qty] of entries) {
     const rec = await findShopifyVariantBySkuCandidates([fullCode]);
     if (!rec?.inventoryItemId) {
       miss++;

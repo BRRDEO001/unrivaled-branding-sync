@@ -1,5 +1,8 @@
-# Sequential: GetUpdated products+branding → GetUpdated prices → full Stock/ → Shopify.
-# Default schedule: 01:00 South Africa (SAST, UTC+2) ≈ 23:00 UTC.
+# Sequential data flow: products (GetUpdated) → one full Stock/ snapshot → parallel sharded
+# incremental prices + stock apply (REST). Bulk pricing in this repo is only price-fetch-once.
+# Cron: ~01:00 SAST (UTC+2) → 23:00 UTC.
+#
+# Sharding: set SHARD_COUNT and matrix.shard to the same cardinality (e.g. 8 shards → 0..7).
 name: Amrod daily incremental (products, prices, stock)
 
 on:
@@ -8,7 +11,7 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  incremental:
+  incremental-products:
     runs-on: ubuntu-latest
     environment: synced
     timeout-minutes: 360
@@ -20,7 +23,6 @@ jobs:
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
-      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
       INCREMENTAL_CONCURRENCY: "2"
 
     steps:
@@ -34,18 +36,86 @@ jobs:
         working-directory: product-fetch-once
         run: node incremental-products.js
 
-      - name: Incremental prices (Prices/GetUpdated)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: daily-product-logs
+          path: product-fetch-once/logs/
+          if-no-files-found: ignore
+
+  stock-snapshot:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 120
+
+    env:
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch full Amrod stock JSON (once)
+        working-directory: product-fetch-once
+        run: node fetch-amrod-stock-json.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daily-amrod-stock
+          path: product-fetch-once/data/amrod-stock.json
+
+  price-and-stock:
+    needs: [incremental-products, stock-snapshot]
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
+      SHARD_COUNT: "8"
+      SHARD_INDEX: ${{ matrix.shard }}
+      AMROD_STOCK_JSON: data/amrod-stock.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: daily-amrod-stock
+          path: .
+
+      - name: Incremental prices (Prices/GetUpdated, sharded)
         working-directory: product-fetch-once
         run: node incremental-prices.js
 
-      - name: Full stock → Shopify inventory
+      - name: Full stock → Shopify inventory (sharded)
         working-directory: product-fetch-once
         run: node stock-apply-full.js
 
-      - name: Upload logs
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: daily-incremental-logs
+          name: daily-shard-${{ matrix.shard }}-logs
           path: product-fetch-once/logs/
           if-no-files-found: ignore
