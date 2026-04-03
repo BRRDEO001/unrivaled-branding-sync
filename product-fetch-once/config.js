@@ -24,7 +24,8 @@ export const AMROD_TEST_LIMIT = process.env.AMROD_TEST_LIMIT
   ? Number(process.env.AMROD_TEST_LIMIT)
   : null;
 
-export const REQUEST_DELAY_MS = 600;
+/** Pause after variant inventory batch / throttling; override with REQUEST_DELAY_MS (lower = faster if bucket allows). */
+export const REQUEST_DELAY_MS = Number(process.env.REQUEST_DELAY_MS ?? 600) || 600;
 
 // EXACT suffix you requested:
 export const CATEGORY_SEO_SUFFIX =

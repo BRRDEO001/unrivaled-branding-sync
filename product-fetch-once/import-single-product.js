@@ -273,7 +273,6 @@ export async function runSingleProductImportPipeline(product, logger) {
           }
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
     } catch (e) {
       logger.fail({
         amrodCode,
@@ -283,6 +282,10 @@ export async function runSingleProductImportPipeline(product, logger) {
         error: String(e?.message || e),
       });
     }
+  }
+
+  if (variants.length && REQUEST_DELAY_MS > 0) {
+    await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS));
   }
 
   const colourMap = buildColourToImagesMap(product);

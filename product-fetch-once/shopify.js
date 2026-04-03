@@ -233,9 +233,9 @@ export const findShopifyVariantBySkuCandidates = async (skus) => {
  * ✅ Throttled image uploader to avoid Shopify 429 ("Exceeded 2 calls/sec")
  *
  * Control speed with:
- *   IMAGE_MIN_INTERVAL_MS=650   (≈ 1.5 req/sec)
+ *   IMAGE_MIN_INTERVAL_MS=400   (≈ 2.5/sec; Shopify limit is leaky-bucket per second)
  */
-const IMAGE_MIN_INTERVAL_MS = Number(process.env.IMAGE_MIN_INTERVAL_MS || 650);
+const IMAGE_MIN_INTERVAL_MS = Number(process.env.IMAGE_MIN_INTERVAL_MS ?? 400) || 400;
 
 // Queue to serialize image uploads across concurrent workers
 let imageQueue = Promise.resolve();

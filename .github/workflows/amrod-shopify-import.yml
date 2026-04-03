@@ -28,8 +28,10 @@ jobs:
       # -----------------
       # Speed controls
       # -----------------
-      CONCURRENCY: "3"
+      CONCURRENCY: "6"
       IMAGES_MODE: "default+colours"
+      REQUEST_DELAY_MS: "120"
+      IMAGE_MIN_INTERVAL_MS: "350"
 
       # -----------------
       # Sharding

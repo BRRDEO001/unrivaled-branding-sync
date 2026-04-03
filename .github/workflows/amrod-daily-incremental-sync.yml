@@ -23,7 +23,9 @@ jobs:
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
-      INCREMENTAL_CONCURRENCY: "2"
+      INCREMENTAL_CONCURRENCY: "8"
+      REQUEST_DELAY_MS: "120"
+      IMAGE_MIN_INTERVAL_MS: "350"
 
     steps:
       - uses: actions/checkout@v4

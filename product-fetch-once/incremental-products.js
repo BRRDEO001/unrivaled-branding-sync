@@ -64,7 +64,7 @@ export async function runIncrementalProductsSync() {
     return;
   }
 
-  const concurrency = Math.max(1, Number(process.env.INCREMENTAL_CONCURRENCY || 2));
+  const concurrency = Math.max(1, Number(process.env.INCREMENTAL_CONCURRENCY || 6));
   let i = 0;
   const workers = Array.from({ length: concurrency }, async () => {
     while (true) {
