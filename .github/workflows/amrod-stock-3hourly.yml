@@ -1,0 +1,82 @@
+# Full Amrod Stock/ → Shopify inventory. Runs 8×/day on UTC wall clock (every 3 hours).
+# Does not run product or price sync (see Amrod daily incremental for those).
+name: Amrod stock sync (every 3 hours)
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  stock-snapshot:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 120
+
+    env:
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Fetch full Amrod stock JSON (once)
+        working-directory: product-fetch-once
+        run: node fetch-amrod-stock-json.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amrod-stock-json
+          path: product-fetch-once/data/amrod-stock.json
+
+  stock-apply:
+    needs: [stock-snapshot]
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 360
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        shard: [0, 1, 2, 3]
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
+      SHARD_COUNT: "4"
+      SHARD_INDEX: ${{ matrix.shard }}
+      AMROD_STOCK_JSON: data/amrod-stock.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: amrod-stock-json
+          path: .
+
+      - name: Full stock → Shopify inventory (sharded)
+        working-directory: product-fetch-once
+        run: node stock-apply-full.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-3h-shard-${{ matrix.shard }}-logs
+          path: product-fetch-once/logs/
+          if-no-files-found: ignore

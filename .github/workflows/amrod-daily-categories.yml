@@ -1,10 +1,8 @@
-# If Categories/GetUpdated returns rows, runs full Categories/ sync (menu + metafield).
-# Same local-time slot as incremental sync, offset by 15m to reduce concurrent API load.
-name: Amrod daily categories (GetUpdated gate)
+# Scheduled run merged into "Amrod daily incremental (products, prices, stock, categories)".
+# Use this workflow only for manual category-only runs (workflow_dispatch).
+name: Amrod categories only (manual)
 
 on:
-  schedule:
-    - cron: "15 23 * * *"
   workflow_dispatch: {}
 
 jobs:

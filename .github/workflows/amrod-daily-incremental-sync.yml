@@ -1,9 +1,11 @@
-# products (GetUpdated) → one Stock/ snapshot → sharded incremental prices + stock (REST).
-# max-parallel: 1 = one shard at a time (avoids concurrent REST bursts and Shopify throttling).
+# Nightly: incremental products (GetUpdated) + incremental prices (Prices/GetUpdated) + full Stock/ → Shopify.
+# Categories (GetUpdated gate → full tree): runs in parallel with products/stock snapshot.
+# Sharded price + stock: max-parallel 1 (one REST shard at a time).
+# Stock also runs every 3 hours separately (.github/workflows/amrod-stock-3hourly.yml).
 # Cron: ~01:00 SAST (UTC+2) → 23:00 UTC.
 #
-# Sharding: keep SHARD_COUNT in sync with matrix.shard (default 4 → 0..3). Use 2 or 1 if still rate-limited.
-name: Amrod daily incremental (products, prices, stock)
+# Sharding: keep SHARD_COUNT in sync with matrix.shard (default 4 → 0..3).
+name: Amrod daily incremental (products, prices, stock, categories)
 
 on:
   schedule:
@@ -70,6 +72,29 @@ jobs:
         with:
           name: daily-amrod-stock
           path: product-fetch-once/data/amrod-stock.json
+
+  categories:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 30
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Categories (GetUpdated gate + full sync)
+        working-directory: categories-fetch-once
+        run: node daily-incremental.js
 
   price-and-stock:
     needs: [incremental-products, stock-snapshot]
