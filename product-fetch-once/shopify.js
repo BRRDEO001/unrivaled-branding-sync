@@ -181,6 +181,32 @@ export const setInventoryLevel = async (inventoryItemId, locationId, available) 
   });
 };
 
+/** Primary location legacy ID for REST `inventory_levels` (GraphQL, then REST fallback). */
+export async function getPrimaryLocationId() {
+  const q = `
+    query {
+      shop {
+        primaryLocation {
+          legacyResourceId
+        }
+      }
+    }
+  `;
+  try {
+    const data = await shopifyGraphql(q);
+    const id = data?.shop?.primaryLocation?.legacyResourceId;
+    if (id != null) return Number(id);
+  } catch {
+    // fall through
+  }
+
+  const res = await shopifyFetch("locations.json?limit=250");
+  const locs = (res.locations || []).filter((l) => l.active);
+  if (!locs.length) return null;
+  const primary = locs.find((l) => l.primary === true);
+  return primary?.id ?? locs[0]?.id ?? null;
+}
+
 function legacyFromGid(gid) {
   if (gid == null) return null;
   if (typeof gid === "number") return gid;

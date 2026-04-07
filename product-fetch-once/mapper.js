@@ -181,8 +181,7 @@ function buildVariants(amrod, useColour, useSize) {
 
     const variant = {
       sku,
-      // If you don't track inventory quantities, typically you leave inventory_management null
-      // inventory_management: null,
+      inventory_management: "shopify",
       requires_shipping: true,
     };
 

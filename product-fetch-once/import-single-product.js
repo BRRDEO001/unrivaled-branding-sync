@@ -7,6 +7,7 @@ import {
   createShopifyProductImage,
   updateInventoryItemMeasurement,
   setInventoryLevel,
+  getPrimaryLocationId,
 } from "./shopify.js";
 import { mapAmrodToShopifyProduct } from "./mapper.js";
 import { logImageFailure, logProductFailure } from "./logger.js";
@@ -150,7 +151,7 @@ function buildDesiredVariants(amrod) {
 
     const out = {
       sku: v.fullCode || v.simpleCode || amrod.fullCode,
-      inventory_management: null,
+      inventory_management: "shopify",
       weight: Number.isFinite(weightKg) ? weightKg : 0,
       weight_unit: "kg",
     };
@@ -166,9 +167,25 @@ function buildDesiredVariants(amrod) {
  * Full import: create Shopify product + variants + inventory measurement + images.
  * Caller is responsible for deleting any existing product first when updating.
  */
+/** Primary location only, or first ID in SHOPIFY_LOCATION_IDS if you override. */
+async function resolvePrimaryInventoryLocationId() {
+  const raw = process.env.SHOPIFY_LOCATION_IDS?.trim();
+  if (raw) {
+    const first = raw.split(",")[0].trim();
+    if (first) return Number(first);
+  }
+  const id = await getPrimaryLocationId();
+  if (id == null) {
+    console.log("::warning::No Shopify primary location — set SHOPIFY_LOCATION_IDS or check read_locations scope");
+  } else {
+    console.log(`📍 Inventory at primary location ${id} (override with SHOPIFY_LOCATION_IDS)`);
+  }
+  return id;
+}
+
 export async function runSingleProductImportPipeline(product, logger) {
   const amrodCode = product.fullCode || product.simpleCode || "UNKNOWN_CODE";
-  const LOCATION_IDS = process.env.SHOPIFY_LOCATION_IDS?.split(",");
+  const primaryLocationId = await resolvePrimaryInventoryLocationId();
 
   const categoryTags = buildCategoryTags(product.categories || []);
 
@@ -211,6 +228,7 @@ export async function runSingleProductImportPipeline(product, logger) {
         option1: "Default",
         weight: 0.2,
         weight_unit: "kg",
+        inventory_management: "shopify",
       });
       variants = [v];
     }
@@ -262,15 +280,12 @@ export async function runSingleProductImportPipeline(product, logger) {
         shippingPackageId: COURIER_GUY_SHIPPING_PACKAGE_ID || null,
       });
 
-      if (LOCATION_IDS) {
-        for (const LOCATION_ID of LOCATION_IDS) {
-          if (!LOCATION_ID) continue;
-          try {
-            await setInventoryLevel(inventoryItemId, LOCATION_ID, 10);
-          } catch (e) {
-            console.log("location update failed");
-            console.error(e);
-          }
+      if (primaryLocationId != null) {
+        try {
+          await setInventoryLevel(inventoryItemId, primaryLocationId, 10);
+        } catch (e) {
+          console.log("location update failed");
+          console.error(e);
         }
       }
     } catch (e) {

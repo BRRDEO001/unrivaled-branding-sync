@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 /**
- * GET /api/v1/Stock/ (full list) → Shopify inventory per SHOPIFY_LOCATION_IDS.
- * Run after Amrod’s daily stock window (e.g. 00:30 SAST); sums `stock` by variant fullCode.
+ * GET /api/v1/Stock/ (full list) → Shopify inventory at the **primary** location.
+ * Optional: SHOPIFY_LOCATION_IDS — only the first ID is used if set.
  */
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { fetchAmrodToken, fetchStockAll } from "./amrod.js";
-import { findShopifyVariantBySkuCandidates, setInventoryLevel } from "./shopify.js";
+import {
+  findShopifyVariantBySkuCandidates,
+  setInventoryLevel,
+  getPrimaryLocationId,
+} from "./shopify.js";
 import { REQUEST_DELAY_MS } from "./config.js";
 
 /** fullCode → total available quantity */
@@ -30,12 +34,23 @@ function filterEntriesByShard(entries) {
 }
 
 export async function runStockFullSyncToShopify() {
-  const locRaw = process.env.SHOPIFY_LOCATION_IDS;
-  if (!locRaw?.trim()) {
-    console.log("::notice::SHOPIFY_LOCATION_IDS not set — skipping stock apply");
-    return;
+  const locRaw = process.env.SHOPIFY_LOCATION_IDS?.trim();
+  let locationId;
+  if (locRaw) {
+    locationId = Number(locRaw.split(",")[0].trim());
+    if (!Number.isFinite(locationId)) {
+      console.log("::notice::SHOPIFY_LOCATION_IDS first value invalid — skipping stock apply");
+      return;
+    }
+    console.log(`📍 Stock apply: location ${locationId} (from SHOPIFY_LOCATION_IDS)`);
+  } else {
+    locationId = await getPrimaryLocationId();
+    if (locationId == null) {
+      console.log("::notice::No primary Shopify location — skipping stock apply");
+      return;
+    }
+    console.log(`📍 Stock apply: primary location ${locationId}`);
   }
-  const locations = locRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
   const fromFile = process.env.AMROD_STOCK_JSON;
   let rows;
@@ -73,14 +88,12 @@ export async function runStockFullSyncToShopify() {
     }
 
     const q = Math.max(0, Math.floor(qty));
-    for (const loc of locations) {
-      try {
-        await setInventoryLevel(rec.inventoryItemId, loc, q);
-      } catch (e) {
-        console.log(
-          `::warning title=Stock set failed::${fullCode} loc ${loc} | ${String(e?.message || e)}`
-        );
-      }
+    try {
+      await setInventoryLevel(rec.inventoryItemId, locationId, q);
+    } catch (e) {
+      console.log(
+        `::warning title=Stock set failed::${fullCode} loc ${locationId} | ${String(e?.message || e)}`
+      );
     }
     ok++;
     await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
