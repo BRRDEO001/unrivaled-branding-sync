@@ -8,10 +8,17 @@ import { fileURLToPath } from "url";
 import { fetchAmrodToken, fetchStockAll } from "./amrod.js";
 import {
   findShopifyVariantBySkuCandidates,
+  setInventoryItemTracked,
   setInventoryLevel,
   getPrimaryLocationId,
 } from "./shopify.js";
 import { REQUEST_DELAY_MS } from "./config.js";
+
+function isTrackingDisabledError(error) {
+  return String(error?.message || error)
+    .toLowerCase()
+    .includes("inventory item does not have inventory tracking enabled");
+}
 
 /** fullCode → total available quantity */
 function aggregateStock(rows) {
@@ -97,6 +104,8 @@ export async function runStockFullSyncToShopify() {
 
   let ok = 0;
   let miss = 0;
+  let trackingEnabled = 0;
+  let failed = 0;
 
   for (const [fullCode, qty] of entries) {
     const rec = await findShopifyVariantBySkuCandidates([fullCode]);
@@ -108,16 +117,38 @@ export async function runStockFullSyncToShopify() {
     const q = Math.max(0, Math.floor(qty));
     try {
       await setInventoryLevel(rec.inventoryItemId, locationId, q);
+      ok++;
     } catch (e) {
+      if (isTrackingDisabledError(e)) {
+        try {
+          await setInventoryItemTracked(rec.inventoryItemId, true);
+          await setInventoryLevel(rec.inventoryItemId, locationId, q);
+          trackingEnabled++;
+          ok++;
+          console.log(`::notice title=Inventory tracking enabled::${fullCode} loc ${locationId}`);
+        } catch (retryErr) {
+          failed++;
+          console.log(
+            `::warning title=Stock set failed after enabling tracking::${fullCode} loc ${locationId} | ${String(
+              retryErr?.message || retryErr
+            )}`
+          );
+        }
+        await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
+        continue;
+      }
+
+      failed++;
       console.log(
         `::warning title=Stock set failed::${fullCode} loc ${locationId} | ${String(e?.message || e)}`
       );
     }
-    ok++;
     await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
   }
 
-  console.log(`✅ Stock levels updated: ${ok} SKUs, ${miss} not found in Shopify`);
+  console.log(
+    `✅ Stock levels updated: ${ok} SKUs, ${miss} not found in Shopify, ${trackingEnabled} tracking-enabled, ${failed} failed`
+  );
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

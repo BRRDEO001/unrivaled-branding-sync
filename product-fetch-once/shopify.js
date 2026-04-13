@@ -181,6 +181,37 @@ export const setInventoryLevel = async (inventoryItemId, locationId, available) 
   });
 };
 
+export const setInventoryItemTracked = async (inventoryItemId, tracked = true) => {
+  if (!inventoryItemId) throw new Error("inventoryItemId required");
+
+  const gid = String(inventoryItemId).startsWith("gid://")
+    ? inventoryItemId
+    : `gid://shopify/InventoryItem/${inventoryItemId}`;
+
+  const mutation = `
+    mutation InventoryItemTrackingUpdate($input: InventoryItemInput!) {
+      inventoryItemUpdate(input: $input) {
+        inventoryItem { id tracked }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  const data = await shopifyGraphql(mutation, {
+    input: {
+      id: gid,
+      tracked: Boolean(tracked),
+    },
+  });
+
+  const errs = data?.inventoryItemUpdate?.userErrors || [];
+  if (errs.length) {
+    throw new Error(`inventoryItemUpdate userErrors: ${JSON.stringify(errs)}`);
+  }
+
+  return data.inventoryItemUpdate.inventoryItem;
+};
+
 /** Primary location legacy ID for REST `inventory_levels` (GraphQL, then REST fallback). */
 export async function getPrimaryLocationId() {
   const q = `

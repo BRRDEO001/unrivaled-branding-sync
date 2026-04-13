@@ -6,6 +6,7 @@ import {
   createShopifyVariant,
   createShopifyProductImage,
   updateInventoryItemMeasurement,
+  setInventoryItemTracked,
   setInventoryLevel,
   getPrimaryLocationId,
 } from "./shopify.js";
@@ -274,6 +275,8 @@ export async function runSingleProductImportPipeline(product, logger) {
         ) || 0;
       const weightKg = Math.max(0, weightKgRaw + 0.2);
 
+      await setInventoryItemTracked(inventoryItemId, true);
+
       await updateInventoryItemMeasurement({
         inventoryItemId,
         weightKg,
@@ -282,7 +285,7 @@ export async function runSingleProductImportPipeline(product, logger) {
 
       if (primaryLocationId != null) {
         try {
-          await setInventoryLevel(inventoryItemId, primaryLocationId, 10);
+          await setInventoryLevel(inventoryItemId, primaryLocationId, 0);
         } catch (e) {
           console.log("location update failed");
           console.error(e);
