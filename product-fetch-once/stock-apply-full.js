@@ -14,6 +14,8 @@ import {
 } from "./shopify.js";
 import { REQUEST_DELAY_MS } from "./config.js";
 
+const FAILED_ATTEMPT_RETRY_DELAY_MS = 300;
+
 function isTrackingDisabledError(error) {
   return String(error?.message || error)
     .toLowerCase()
@@ -49,6 +51,18 @@ function filterEntriesByShard(entries) {
   const i = Number(process.env.SHARD_INDEX || 0);
   if (n <= 1) return entries;
   return entries.filter((_, idx) => idx % n === i);
+}
+
+async function applyStockWithRecovery(inventoryItemId, locationId, quantity) {
+  try {
+    await setInventoryLevel(inventoryItemId, locationId, quantity);
+    return { ok: true, trackingEnabled: false };
+  } catch (e) {
+    if (!isTrackingDisabledError(e)) throw e;
+    await setInventoryItemTracked(inventoryItemId, true);
+    await setInventoryLevel(inventoryItemId, locationId, quantity);
+    return { ok: true, trackingEnabled: true };
+  }
 }
 
 export async function runStockFullSyncToShopify() {
@@ -98,53 +112,88 @@ export async function runStockFullSyncToShopify() {
   );
   const before = entries.length;
   entries = filterEntriesByShard(entries);
+  const concurrency = Math.max(1, Number(process.env.STOCK_APPLY_CONCURRENCY || 4));
   console.log(
-    `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${process.env.SHARD_INDEX || 0} → ${entries.length}/${before} SKUs`
+    `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${process.env.SHARD_INDEX || 0} → ${entries.length}/${before} SKUs | CONCURRENCY=${concurrency}`
   );
 
   let ok = 0;
   let miss = 0;
   let trackingEnabled = 0;
   let failed = 0;
+  let index = 0;
+  let processed = 0;
+  const startedAt = Date.now();
 
-  for (const [fullCode, qty] of entries) {
+  async function processOne([fullCode, qty]) {
     const rec = await findShopifyVariantBySkuCandidates([fullCode]);
     if (!rec?.inventoryItemId) {
       miss++;
-      continue;
+      return;
     }
 
     const q = Math.max(0, Math.floor(qty));
-    try {
-      await setInventoryLevel(rec.inventoryItemId, locationId, q);
-      ok++;
-    } catch (e) {
-      if (isTrackingDisabledError(e)) {
-        try {
-          await setInventoryItemTracked(rec.inventoryItemId, true);
-          await setInventoryLevel(rec.inventoryItemId, locationId, q);
+    let lastErr = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const result = await applyStockWithRecovery(rec.inventoryItemId, locationId, q);
+        ok++;
+        if (result.trackingEnabled) {
           trackingEnabled++;
-          ok++;
           console.log(`::notice title=Inventory tracking enabled::${fullCode} loc ${locationId}`);
-        } catch (retryErr) {
-          failed++;
+        }
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (attempt < 2) {
           console.log(
-            `::warning title=Stock set failed after enabling tracking::${fullCode} loc ${locationId} | ${String(
-              retryErr?.message || retryErr
+            `::notice title=Retrying stock apply::${fullCode} loc ${locationId} | waiting ${FAILED_ATTEMPT_RETRY_DELAY_MS}ms after ${String(
+              e?.message || e
             )}`
           );
+          await new Promise((r) => setTimeout(r, FAILED_ATTEMPT_RETRY_DELAY_MS));
+          continue;
         }
-        await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
-        continue;
       }
+    }
 
+    if (lastErr) {
       failed++;
+      const title = isTrackingDisabledError(lastErr)
+        ? "Stock set failed after enabling tracking"
+        : "Stock set failed";
       console.log(
-        `::warning title=Stock set failed::${fullCode} loc ${locationId} | ${String(e?.message || e)}`
+        `::warning title=${title}::${fullCode} loc ${locationId} | ${String(
+          lastErr?.message || lastErr
+        )}`
       );
     }
-    await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
+    try {
+      // no-op: keeps structure aligned with progress + pacing in finally
+    } finally {
+      processed++;
+      if (processed % 250 === 0 || processed === entries.length) {
+        const elapsedSec = Math.max(1, (Date.now() - startedAt) / 1000);
+        const rate = processed / elapsedSec;
+        console.log(
+          `📦 Stock progress: ${processed}/${entries.length} | ${rate.toFixed(2)} sku/s | ok=${ok} miss=${miss} tracking=${trackingEnabled} failed=${failed}`
+        );
+      }
+      await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
+    }
   }
+
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (true) {
+      const i = index++;
+      if (i >= entries.length) break;
+      await processOne(entries[i]);
+    }
+  });
+
+  await Promise.all(workers);
 
   console.log(
     `✅ Stock levels updated: ${ok} SKUs, ${miss} not found in Shopify, ${trackingEnabled} tracking-enabled, ${failed} failed`

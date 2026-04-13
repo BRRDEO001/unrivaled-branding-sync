@@ -189,8 +189,8 @@ export const setInventoryItemTracked = async (inventoryItemId, tracked = true) =
     : `gid://shopify/InventoryItem/${inventoryItemId}`;
 
   const mutation = `
-    mutation InventoryItemTrackingUpdate($input: InventoryItemInput!) {
-      inventoryItemUpdate(input: $input) {
+    mutation InventoryItemTrackingUpdate($id: ID!, $input: InventoryItemInput!) {
+      inventoryItemUpdate(id: $id, input: $input) {
         inventoryItem { id tracked }
         userErrors { field message }
       }
@@ -198,8 +198,8 @@ export const setInventoryItemTracked = async (inventoryItemId, tracked = true) =
   `;
 
   const data = await shopifyGraphql(mutation, {
+    id: gid,
     input: {
-      id: gid,
       tracked: Boolean(tracked),
     },
   });
@@ -337,8 +337,8 @@ export const updateInventoryItemMeasurement = async ({
     : `gid://shopify/InventoryItem/${inventoryItemId}`;
 
   const mutation = `
-    mutation InventoryItemMeasurementUpdate($input: InventoryItemInput!) {
-      inventoryItemUpdate(input: $input) {
+    mutation InventoryItemMeasurementUpdate($id: ID!, $input: InventoryItemInput!) {
+      inventoryItemUpdate(id: $id, input: $input) {
         inventoryItem { id }
         userErrors { field message }
       }
@@ -351,8 +351,8 @@ export const updateInventoryItemMeasurement = async ({
   };
 
   const data = await shopifyGraphql(mutation, {
+    id: gid,
     input: {
-      id: gid,
       measurement,
     },
   });
