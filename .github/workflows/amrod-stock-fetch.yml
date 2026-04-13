@@ -13,6 +13,7 @@ jobs:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
       SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
       SHOPIFY_API_VERSION: "2026-01"
+      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
 
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
@@ -26,5 +27,5 @@ jobs:
           node-version: 20
 
       - name: Fetch and apply stock
-        working-directory: Amrod-stock
-        run: node stock-fetch.js
+        working-directory: product-fetch-once
+        run: node stock-apply-full.js

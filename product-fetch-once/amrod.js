@@ -54,9 +54,27 @@ async function readJsonOptional(res, context) {
 function coerceJsonArray(data, context) {
   if (data == null) return [];
   if (Array.isArray(data)) return data;
-  const inner = data?.Products ?? data?.products ?? data?.items ?? data?.data;
+  const inner =
+    data?.Products ??
+    data?.products ??
+    data?.Prices ??
+    data?.prices ??
+    data?.PriceUpdates ??
+    data?.priceUpdates ??
+    data?.UpdatedPrices ??
+    data?.updatedPrices ??
+    data?.Stock ??
+    data?.stock ??
+    data?.StockItems ??
+    data?.stockItems ??
+    data?.items ??
+    data?.data ??
+    data?.Results ??
+    data?.results;
   if (Array.isArray(inner)) return inner;
-  throw new Error(`${context}: expected a JSON array or wrapper with Products[]`);
+  throw new Error(
+    `${context}: expected a JSON array or known wrapper (got keys: ${Object.keys(data || {}).join(", ") || "empty"})`
+  );
 }
 
 function normalizeAmrodProductsList(data) {
@@ -186,13 +204,19 @@ export const fetchUpdatedPrices = async (token) => {
 };
 
 export const fetchStockAll = async (token) => {
-  const res = await amrodGetJson(AMROD_STOCK_ALL_ENDPOINT, token);
+  const code = String(AMROD_AUTH_DETAILS?.CustomerCode || "").trim();
+  const url = code ? requireCustomerCodeUrl(AMROD_STOCK_ALL_ENDPOINT) : AMROD_STOCK_ALL_ENDPOINT;
+  const res = await amrodGetJson(url, token);
   const raw = await readJsonOptional(res, "Amrod Stock (all)");
   return coerceJsonArray(raw, "Amrod Stock (all)");
 };
 
 export const fetchStockUpdated = async (token) => {
-  const res = await amrodGetJson(AMROD_STOCK_UPDATED_ENDPOINT, token);
+  const code = String(AMROD_AUTH_DETAILS?.CustomerCode || "").trim();
+  const url = code
+    ? requireCustomerCodeUrl(AMROD_STOCK_UPDATED_ENDPOINT)
+    : AMROD_STOCK_UPDATED_ENDPOINT;
+  const res = await amrodGetJson(url, token);
   const raw = await readJsonOptional(res, "Amrod Stock GetUpdated");
   return coerceJsonArray(raw, "Amrod Stock GetUpdated");
 };

@@ -9,10 +9,19 @@ import {
 
 function pickSkuCandidates(p) {
   const normalizeSku = (s) => String(s || "").trim();
-  const full = normalizeSku(p.fullCode);
-  const simple = normalizeSku(p.simplecode || p.simpleCode);
+  const full = normalizeSku(
+    p.fullCode ?? p.FullCode ?? p.full_code ?? p.SKU ?? p.sku
+  );
+  const simple = normalizeSku(
+    p.simplecode ?? p.simpleCode ?? p.SimpleCode ?? p.simple_code
+  );
   const stripped = full.replace(/-\d+-\d+$/, "");
   return [...new Set([full, simple, stripped].filter(Boolean))];
+}
+
+function rowBasePrice(p) {
+  const n = Number(p.price ?? p.Price ?? p.cost ?? p.Cost ?? p.unitPrice ?? p.UnitPrice);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function getMarkupPct(base) {
@@ -44,17 +53,27 @@ export async function runIncrementalPricesSync() {
     `📬 Prices GetUpdated: ${rows.length}/${total} row(s) (shard ${process.env.SHARD_INDEX || 0}/${process.env.SHARD_COUNT || 1})`
   );
   if (!rows.length) {
-    console.log("✅ No price rows for this shard");
+    if (total === 0) {
+      console.log(
+        "✅ No price rows — Amrod Prices/GetUpdated returned empty (normal if no catalog price changes since their last watermark, or wrong CustomerCode/endpoint)"
+      );
+    } else {
+      console.log("✅ No price rows for this shard (try another SHARD_INDEX or SHARD_COUNT=1 to process all)");
+    }
     return;
   }
 
   let ok = 0;
   let miss = 0;
+  let skipBadPrice = 0;
   const delayMs = Number(process.env.SHOPIFY_PRICE_DELAY_MS || 150);
 
   for (const p of rows) {
-    const base = Number(p.price);
-    if (!Number.isFinite(base)) continue;
+    const base = rowBasePrice(p);
+    if (!Number.isFinite(base)) {
+      skipBadPrice++;
+      continue;
+    }
 
     const sell = computeSellPrice(base);
     const cands = pickSkuCandidates(p);
@@ -69,6 +88,11 @@ export async function runIncrementalPricesSync() {
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
   }
 
+  if (skipBadPrice > 0) {
+    console.log(
+      `::notice::Skipped ${skipBadPrice} price row(s) with missing/non-numeric price (check Amrod field names: price/Price)`
+    );
+  }
   console.log(`✅ Price updates applied: ${ok} ok, ${miss} variant not found in Shopify`);
 }
 

@@ -17,9 +17,20 @@ import { REQUEST_DELAY_MS } from "./config.js";
 function aggregateStock(rows) {
   const m = new Map();
   for (const item of rows) {
-    const code = item.fullCode;
+    const code = String(
+      item.fullCode ??
+        item.FullCode ??
+        item.full_code ??
+        item.code ??
+        item.Code ??
+        item.sku ??
+        item.SKU ??
+        ""
+    ).trim();
     if (!code) continue;
-    const n = Number(item.stock ?? item.quantity ?? 0);
+    const n = Number(
+      item.stock ?? item.Stock ?? item.quantity ?? item.Quantity ?? item.available ?? item.Available ?? 0
+    );
     if (!Number.isFinite(n)) continue;
     m.set(code, (m.get(code) || 0) + n);
   }
@@ -67,6 +78,13 @@ export async function runStockFullSyncToShopify() {
 
   const bySku = aggregateStock(rows);
   console.log(`📊 Unique variant SKUs: ${bySku.size}`);
+  if (Array.isArray(rows) && rows.length > 0 && bySku.size === 0) {
+    const sample = rows[0];
+    const keys = sample && typeof sample === "object" ? Object.keys(sample).sort().join(", ") : "";
+    console.log(
+      `::warning title=Stock shape mismatch::${rows.length} raw row(s) but 0 SKUs after parse — check Amrod keys (expected fullCode + stock). Sample keys: ${keys || "n/a"}`
+    );
+  }
 
   let entries = Array.from(bySku.entries()).sort((a, b) =>
     String(a[0]).localeCompare(String(b[0]), "en")
