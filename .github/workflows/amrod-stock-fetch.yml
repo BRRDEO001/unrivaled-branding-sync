@@ -1,20 +1,15 @@
-name: Fetch Product Stock Once
+name: Amrod → Shopify Stock Import (Once-off)
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  stock:
+  stock-snapshot:
     runs-on: ubuntu-latest
     environment: synced
-    timeout-minutes: 180
+    timeout-minutes: 30
 
     env:
-      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
-      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
-      SHOPIFY_API_VERSION: "2026-01"
-      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
-
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
@@ -26,6 +21,61 @@ jobs:
         with:
           node-version: 20
 
-      - name: Fetch and apply stock
+      - name: Fetch full Amrod stock JSON (once)
+        working-directory: product-fetch-once
+        run: node fetch-amrod-stock-json.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: amrod-stock-json
+          path: product-fetch-once/data/amrod-stock.json
+
+  stock-apply:
+    needs: [stock-snapshot]
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
+
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+      SHARD_COUNT: "8"
+      SHARD_INDEX: "${{ matrix.shard }}"
+      STOCK_APPLY_CONCURRENCY: "6"
+      REQUEST_DELAY_MS: "120"
+      AMROD_STOCK_JSON: data/amrod-stock.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: amrod-stock-json
+          path: .
+
+      - name: Apply stock to Shopify (shard ${{ matrix.shard }})
         working-directory: product-fetch-once
         run: node stock-apply-full.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-once-shard-${{ matrix.shard }}-logs
+          path: product-fetch-once/logs/
+          if-no-files-found: ignore

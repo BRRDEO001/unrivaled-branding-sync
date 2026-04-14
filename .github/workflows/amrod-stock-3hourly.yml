@@ -42,9 +42,8 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     env:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
@@ -54,7 +53,9 @@ jobs:
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
       SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
-      SHARD_COUNT: "4"
+      SHARD_COUNT: "8"
+      STOCK_APPLY_CONCURRENCY: "6"
+      REQUEST_DELAY_MS: "120"
       SHARD_INDEX: ${{ matrix.shard }}
       AMROD_STOCK_JSON: data/amrod-stock.json
 
@@ -78,5 +79,6 @@ jobs:
         if: always()
         with:
           name: stock-3h-shard-${{ matrix.shard }}-logs
+          overwrite: true
           path: product-fetch-once/logs/
           if-no-files-found: ignore
