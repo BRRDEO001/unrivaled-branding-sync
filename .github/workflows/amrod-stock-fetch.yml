@@ -67,7 +67,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: amrod-stock-json
-          path: .
+          path: product-fetch-once/data
 
       - name: Apply stock to Shopify (shard ${{ matrix.shard }})
         working-directory: product-fetch-once

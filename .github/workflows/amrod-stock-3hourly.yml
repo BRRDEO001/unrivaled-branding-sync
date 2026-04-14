@@ -69,7 +69,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: amrod-stock-json
-          path: .
+          path: product-fetch-once/data
 
       - name: Full stock → Shopify inventory (sharded)
         working-directory: product-fetch-once
