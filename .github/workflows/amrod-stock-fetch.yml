@@ -53,8 +53,8 @@ jobs:
 
       SHARD_COUNT: "8"
       SHARD_INDEX: "${{ matrix.shard }}"
-      STOCK_APPLY_CONCURRENCY: "6"
-      REQUEST_DELAY_MS: "120"
+      STOCK_APPLY_CONCURRENCY: "3"
+      REQUEST_DELAY_MS: "200"
       AMROD_STOCK_JSON: data/amrod-stock.json
 
     steps:

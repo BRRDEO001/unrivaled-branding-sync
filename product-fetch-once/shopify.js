@@ -90,20 +90,33 @@ export const shopifyFetch = async (endpoint, method = "GET", body, opts = {}) =>
 };
 
 /**
- * GraphQL helper
+ * GraphQL helper — retries on THROTTLED responses with exponential backoff.
  */
 export const shopifyGraphql = async (query, variables = {}, opts = {}) => {
   if (!SHOPIFY_TOKEN) throw new Error("SHOPIFY_TOKEN not set");
 
+  const { graphqlRetries = 6, graphqlBaseDelayMs = 1000, ...fetchOpts } = opts;
   const endpoint = `graphql.json`;
-  const res = await shopifyFetch(endpoint, "POST", { query, variables }, opts);
 
-  // shopifyFetch already throws on non-200, but GraphQL can still return errors
-  if (res?.errors?.length) {
-    throw new Error(`Shopify GraphQL errors: ${JSON.stringify(res.errors)}`);
+  for (let attempt = 0; attempt <= graphqlRetries; attempt++) {
+    const res = await shopifyFetch(endpoint, "POST", { query, variables }, fetchOpts);
+
+    if (res?.errors?.length) {
+      const isThrottled = res.errors.some(
+        (e) => e?.extensions?.code === "THROTTLED"
+      );
+
+      if (isThrottled && attempt < graphqlRetries) {
+        const waitMs = graphqlBaseDelayMs * Math.pow(2, attempt);
+        await sleep(Math.min(waitMs, 30_000));
+        continue;
+      }
+
+      throw new Error(`Shopify GraphQL errors: ${JSON.stringify(res.errors)}`);
+    }
+
+    return res.data;
   }
-
-  return res.data;
 };
 
 /**
