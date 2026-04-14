@@ -54,8 +54,8 @@ jobs:
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
       SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
       SHARD_COUNT: "8"
-      STOCK_APPLY_CONCURRENCY: "3"
-      REQUEST_DELAY_MS: "200"
+      STOCK_APPLY_CONCURRENCY: "2"
+      REQUEST_DELAY_MS: "350"
       SHARD_INDEX: ${{ matrix.shard }}
       AMROD_STOCK_JSON: data/amrod-stock.json
 
