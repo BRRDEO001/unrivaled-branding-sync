@@ -300,6 +300,58 @@ export const findShopifyVariantBySkuCandidates = async (skus) => {
 };
 
 /**
+ * Pre-fetch all Shopify variant SKUs into a Map<sku, {inventoryItemId, tracked}>.
+ * Paginates via GraphQL cursor — one bulk fetch replaces thousands of per-SKU lookups.
+ */
+export async function fetchAllVariantSkuMap() {
+  const q = `
+    query AllVariants($cursor: String) {
+      productVariants(first: 250, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          sku
+          inventoryItem { id tracked }
+        }
+      }
+    }
+  `;
+
+  const map = new Map();
+  let cursor = null;
+  let page = 0;
+
+  do {
+    const data = await shopifyGraphql(q, { cursor });
+    const variants = data?.productVariants;
+    if (!variants) break;
+
+    for (const node of variants.nodes) {
+      const sku = (node.sku || "").trim();
+      if (!sku || map.has(sku)) continue;
+
+      const gid = node.inventoryItem?.id;
+      if (!gid) continue;
+
+      const m = gid.match(/(\d+)$/);
+      map.set(sku, {
+        inventoryItemId: m ? Number(m[1]) : null,
+        tracked: node.inventoryItem?.tracked ?? false,
+      });
+    }
+
+    cursor = variants.pageInfo.hasNextPage ? variants.pageInfo.endCursor : null;
+    page++;
+
+    if (page % 10 === 0) {
+      console.log(`📥 Variant pre-fetch: ${map.size} SKUs (${page} pages)...`);
+    }
+  } while (cursor);
+
+  console.log(`📥 Variant pre-fetch complete: ${map.size} unique SKUs across ${page} page(s)`);
+  return map;
+}
+
+/**
  * ✅ Throttled image uploader to avoid Shopify 429 ("Exceeded 2 calls/sec")
  *
  * Control speed with:

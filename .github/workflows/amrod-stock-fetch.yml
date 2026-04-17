@@ -30,11 +30,37 @@ jobs:
           name: amrod-stock-json
           path: product-fetch-once/data/amrod-stock.json
 
-  stock-apply:
-    needs: [stock-snapshot]
+  sku-map:
     runs-on: ubuntu-latest
     environment: synced
-    timeout-minutes: 180
+    timeout-minutes: 60
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Pre-fetch Shopify SKU → inventory map
+        working-directory: product-fetch-once
+        run: node fetch-shopify-sku-map.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shopify-sku-map
+          path: product-fetch-once/data/shopify-sku-map.json
+
+  stock-apply:
+    needs: [stock-snapshot, sku-map]
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 120
 
     strategy:
       fail-fast: false
@@ -53,9 +79,10 @@ jobs:
 
       SHARD_COUNT: "8"
       SHARD_INDEX: "${{ matrix.shard }}"
-      STOCK_APPLY_CONCURRENCY: "2"
-      REQUEST_DELAY_MS: "350"
+      STOCK_APPLY_CONCURRENCY: "6"
+      REQUEST_DELAY_MS: "150"
       AMROD_STOCK_JSON: data/amrod-stock.json
+      SHOPIFY_SKU_MAP_JSON: data/shopify-sku-map.json
 
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +94,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: amrod-stock-json
+          path: product-fetch-once/data
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: shopify-sku-map
           path: product-fetch-once/data
 
       - name: Apply stock to Shopify (shard ${{ matrix.shard }})

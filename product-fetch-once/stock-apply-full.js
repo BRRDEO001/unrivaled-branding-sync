@@ -2,12 +2,16 @@
 /**
  * GET /api/v1/Stock/ (full list) → Shopify inventory at the **primary** location.
  * Optional: SHOPIFY_LOCATION_IDS — only the first ID is used if set.
+ *
+ * Performance: pre-fetches all Shopify variant SKUs into a map (from
+ * SHOPIFY_SKU_MAP_JSON file or live API), eliminating per-SKU GraphQL lookups.
+ * Misses are partitioned out before the main loop so no API calls are wasted.
  */
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { fetchAmrodToken, fetchStockAll } from "./amrod.js";
 import {
-  findShopifyVariantBySkuCandidates,
+  fetchAllVariantSkuMap,
   setInventoryItemTracked,
   setInventoryLevel,
   getPrimaryLocationId,
@@ -22,7 +26,7 @@ function isTrackingDisabledError(error) {
     .includes("inventory item does not have inventory tracking enabled");
 }
 
-/** fullCode → total available quantity */
+/** fullCode → total available quantity (deduplicates by summing) */
 function aggregateStock(rows) {
   const m = new Map();
   for (const item of rows) {
@@ -66,6 +70,7 @@ async function applyStockWithRecovery(inventoryItemId, locationId, quantity) {
 }
 
 export async function runStockFullSyncToShopify() {
+  /* ── Resolve Shopify location ── */
   const locRaw = process.env.SHOPIFY_LOCATION_IDS?.trim();
   let locationId;
   if (locRaw) {
@@ -84,9 +89,9 @@ export async function runStockFullSyncToShopify() {
     console.log(`📍 Stock apply: primary location ${locationId}`);
   }
 
+  /* ── Load Amrod stock ── */
   const fromFile = process.env.AMROD_STOCK_JSON;
   let rows;
-
   if (fromFile) {
     console.log(`📂 Loading stock from ${fromFile} ...`);
     rows = JSON.parse(fs.readFileSync(fromFile, "utf8"));
@@ -98,7 +103,8 @@ export async function runStockFullSyncToShopify() {
   }
 
   const bySku = aggregateStock(rows);
-  console.log(`📊 Unique variant SKUs: ${bySku.size}`);
+  console.log(`📊 Unique variant SKUs from Amrod: ${bySku.size}`);
+
   if (Array.isArray(rows) && rows.length > 0 && bySku.size === 0) {
     const sample = rows[0];
     const keys = sample && typeof sample === "object" ? Object.keys(sample).sort().join(", ") : "";
@@ -107,41 +113,78 @@ export async function runStockFullSyncToShopify() {
     );
   }
 
-  let entries = Array.from(bySku.entries()).sort((a, b) =>
+  /* ── Load or build Shopify SKU → inventoryItemId map ── */
+  const skuMapFile = process.env.SHOPIFY_SKU_MAP_JSON;
+  let shopifyMap;
+
+  if (skuMapFile) {
+    console.log(`📂 Loading Shopify SKU map from ${skuMapFile} ...`);
+    const raw = JSON.parse(fs.readFileSync(skuMapFile, "utf8"));
+    shopifyMap = new Map(
+      Object.entries(raw).map(([k, v]) =>
+        [k, typeof v === "object" ? v : { inventoryItemId: v }]
+      )
+    );
+    console.log(`📥 Loaded ${shopifyMap.size} SKU mappings from file`);
+  } else {
+    console.log("📥 Pre-fetching all Shopify variant SKUs (no SHOPIFY_SKU_MAP_JSON)...");
+    shopifyMap = await fetchAllVariantSkuMap();
+  }
+
+  /* ── Shard + partition matched vs misses ── */
+  let allEntries = Array.from(bySku.entries()).sort((a, b) =>
     String(a[0]).localeCompare(String(b[0]), "en")
   );
-  const before = entries.length;
-  entries = filterEntriesByShard(entries);
-  const concurrency = Math.max(1, Number(process.env.STOCK_APPLY_CONCURRENCY || 4));
+  const totalBefore = allEntries.length;
+  allEntries = filterEntriesByShard(allEntries);
+
+  const matched = [];
+  let miss = 0;
+  const seen = new Set();
+
+  for (const [sku, qty] of allEntries) {
+    if (seen.has(sku)) continue;
+    seen.add(sku);
+
+    const rec = shopifyMap.get(sku);
+    if (rec?.inventoryItemId) {
+      matched.push({ sku, qty, inventoryItemId: rec.inventoryItemId });
+    } else {
+      miss++;
+    }
+  }
+
+  const concurrency = Math.max(1, Number(process.env.STOCK_APPLY_CONCURRENCY || 8));
   console.log(
-    `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${process.env.SHARD_INDEX || 0} → ${entries.length}/${before} SKUs | CONCURRENCY=${concurrency}`
+    `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${
+      process.env.SHARD_INDEX || 0
+    } → ${allEntries.length}/${totalBefore} SKUs | Matched: ${matched.length} | Not in Shopify: ${miss} | CONCURRENCY=${concurrency}`
   );
 
+  if (!matched.length) {
+    console.log("::notice::No matching SKUs to update — done.");
+    return;
+  }
+
+  /* ── Process matched entries ── */
   let ok = 0;
-  let miss = 0;
   let trackingEnabled = 0;
   let failed = 0;
-  let index = 0;
   let processed = 0;
+  let index = 0;
   const startedAt = Date.now();
 
-  async function processOne([fullCode, qty]) {
-    const rec = await findShopifyVariantBySkuCandidates([fullCode]);
-    if (!rec?.inventoryItemId) {
-      miss++;
-      return;
-    }
-
+  async function processOne({ sku, qty, inventoryItemId }) {
     const q = Math.max(0, Math.floor(qty));
     let lastErr = null;
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        const result = await applyStockWithRecovery(rec.inventoryItemId, locationId, q);
+        const result = await applyStockWithRecovery(inventoryItemId, locationId, q);
         ok++;
         if (result.trackingEnabled) {
           trackingEnabled++;
-          console.log(`::notice title=Inventory tracking enabled::${fullCode} loc ${locationId}`);
+          console.log(`::notice title=Inventory tracking enabled::${sku} loc ${locationId}`);
         }
         lastErr = null;
         break;
@@ -149,7 +192,7 @@ export async function runStockFullSyncToShopify() {
         lastErr = e;
         if (attempt < 2) {
           console.log(
-            `::notice title=Retrying stock apply::${fullCode} loc ${locationId} | waiting ${FAILED_ATTEMPT_RETRY_DELAY_MS}ms after ${String(
+            `::notice title=Retrying stock apply::${sku} loc ${locationId} | waiting ${FAILED_ATTEMPT_RETRY_DELAY_MS}ms after ${String(
               e?.message || e
             )}`
           );
@@ -165,31 +208,29 @@ export async function runStockFullSyncToShopify() {
         ? "Stock set failed after enabling tracking"
         : "Stock set failed";
       console.log(
-        `::warning title=${title}::${fullCode} loc ${locationId} | ${String(
+        `::warning title=${title}::${sku} loc ${locationId} | ${String(
           lastErr?.message || lastErr
         )}`
       );
     }
-    try {
-      // no-op: keeps structure aligned with progress + pacing in finally
-    } finally {
-      processed++;
-      if (processed % 250 === 0 || processed === entries.length) {
-        const elapsedSec = Math.max(1, (Date.now() - startedAt) / 1000);
-        const rate = processed / elapsedSec;
-        console.log(
-          `📦 Stock progress: ${processed}/${entries.length} | ${rate.toFixed(2)} sku/s | ok=${ok} miss=${miss} tracking=${trackingEnabled} failed=${failed}`
-        );
-      }
-      await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
+
+    processed++;
+    if (processed % 250 === 0 || processed === matched.length) {
+      const elapsedSec = Math.max(1, (Date.now() - startedAt) / 1000);
+      const rate = processed / elapsedSec;
+      console.log(
+        `📦 Stock progress: ${processed}/${matched.length} | ${rate.toFixed(2)} sku/s | ok=${ok} miss=${miss} tracking=${trackingEnabled} failed=${failed}`
+      );
     }
+
+    await new Promise((r) => setTimeout(r, REQUEST_DELAY_MS));
   }
 
   const workers = Array.from({ length: concurrency }, async () => {
     while (true) {
       const i = index++;
-      if (i >= entries.length) break;
-      await processOne(entries[i]);
+      if (i >= matched.length) break;
+      await processOne(matched[i]);
     }
   });
 
