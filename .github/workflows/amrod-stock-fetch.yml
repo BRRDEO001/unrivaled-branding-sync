@@ -56,6 +56,10 @@ jobs:
           name: shopify-sku-map
           path: product-fetch-once/data/shopify-sku-map.json
 
+  # Sharding: SHARD_COUNT must equal len(matrix.shard). Many shards -> less work per
+  # runner (stays under the 2h job timeout). Rate limits: shopify.js REST pacing is
+  # per process, so we cap matrix concurrency and use a per-runner interval that is
+  # aggressive but still retries safely on 429/5xx.
   stock-apply:
     needs: [stock-snapshot, sku-map]
     runs-on: ubuntu-latest
@@ -64,23 +68,25 @@ jobs:
 
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 
     env:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
       SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
       SHOPIFY_API_VERSION: "2026-01"
       SHOPIFY_LOCATION_IDS: ${{ secrets.SHOPIFY_LOCATION_IDS }}
+      SHOPIFY_REST_INTERVAL_MS: "900"
 
       AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
       AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
 
-      SHARD_COUNT: "8"
+      SHARD_COUNT: "16"
       SHARD_INDEX: "${{ matrix.shard }}"
-      STOCK_APPLY_CONCURRENCY: "4"
-      REQUEST_DELAY_MS: "100"
+      STOCK_APPLY_CONCURRENCY: "8"
+      REQUEST_DELAY_MS: "0"
       AMROD_STOCK_JSON: data/amrod-stock.json
       SHOPIFY_SKU_MAP_JSON: data/shopify-sku-map.json
 
