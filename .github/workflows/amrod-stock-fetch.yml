@@ -79,8 +79,8 @@ jobs:
 
       SHARD_COUNT: "8"
       SHARD_INDEX: "${{ matrix.shard }}"
-      STOCK_APPLY_CONCURRENCY: "6"
-      REQUEST_DELAY_MS: "150"
+      STOCK_APPLY_CONCURRENCY: "4"
+      REQUEST_DELAY_MS: "100"
       AMROD_STOCK_JSON: data/amrod-stock.json
       SHOPIFY_SKU_MAP_JSON: data/shopify-sku-map.json
 

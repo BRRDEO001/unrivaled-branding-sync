@@ -4,6 +4,26 @@ import { logImageFailure } from "./logger.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ── Global REST call pacer ──
+ * Serialises the *start* of every Shopify REST call so we never exceed
+ * the plan's per-second limit (Basic/Shopify = 2 req/s).
+ * Configurable via SHOPIFY_REST_INTERVAL_MS (default 550 ms ≈ 1.8 req/s).
+ */
+const SHOPIFY_REST_INTERVAL_MS =
+  Number(process.env.SHOPIFY_REST_INTERVAL_MS ?? 550) || 550;
+let _restLastCall = 0;
+let _restQueue = Promise.resolve();
+
+function acquireRestSlot() {
+  const slot = _restQueue.then(async () => {
+    const gap = Math.max(0, _restLastCall + SHOPIFY_REST_INTERVAL_MS - Date.now());
+    if (gap > 0) await sleep(gap);
+    _restLastCall = Date.now();
+  });
+  _restQueue = slot.catch(() => {});
+  return slot;
+}
+
 export const shopifyFetch = async (endpoint, method = "GET", body, opts = {}) => {
   if (!SHOPIFY_TOKEN) throw new Error("SHOPIFY_TOKEN not set");
 
@@ -12,6 +32,8 @@ export const shopifyFetch = async (endpoint, method = "GET", body, opts = {}) =>
   let lastErr;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    await acquireRestSlot();
+
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
 

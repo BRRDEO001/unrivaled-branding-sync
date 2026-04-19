@@ -154,7 +154,7 @@ export async function runStockFullSyncToShopify() {
     }
   }
 
-  const concurrency = Math.max(1, Number(process.env.STOCK_APPLY_CONCURRENCY || 8));
+  const concurrency = Math.max(1, Number(process.env.STOCK_APPLY_CONCURRENCY || 4));
   console.log(
     `🔢 Stock shard: SHARD_COUNT=${process.env.SHARD_COUNT || 1} SHARD_INDEX=${
       process.env.SHARD_INDEX || 0
