@@ -1,6 +1,31 @@
 #!/usr/bin/env node
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(SCRIPT_DIR, "data");
+const LOGS_DIR = path.join(SCRIPT_DIR, "logs");
+
+/** Resolve paths relative to this script (so `node price-fetch-once/price-apply-bulk.js` works from repo root). */
+function resolveEnvPath(p) {
+  if (!p) return null;
+  return path.isAbsolute(p) ? p : path.join(SCRIPT_DIR, p);
+}
+
+function parseJsonFile(filePath, label) {
+  const text = fs.readFileSync(filePath, "utf8").trim();
+  if (text.startsWith("#!")) {
+    throw new Error(
+      `${label}: ${filePath} starts with a shebang — not JSON. Regenerate with: cd price-fetch-once && node prices-build-variant-map.js`
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${label}: invalid JSON in ${filePath}: ${e.message}`);
+  }
+}
 
 import {
   AMROD_AUTH_ENDPOINT,
@@ -309,25 +334,26 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
 }
 
 (async () => {
-  if (!fs.existsSync("data/variant-map.json")) {
-    throw new Error("Missing data/variant-map.json (run prices-build-variant-map.js)");
+  const variantMapPath = path.join(DATA_DIR, "variant-map.json");
+  if (!fs.existsSync(variantMapPath)) {
+    throw new Error("Missing data/variant-map.json (run prices-build-variant-map.js from price-fetch-once)");
   }
 
-  ensureDir("data");
-  ensureDir("logs");
+  ensureDir(DATA_DIR);
+  ensureDir(LOGS_DIR);
 
-  const variantMap = JSON.parse(fs.readFileSync("data/variant-map.json", "utf8"));
+  const variantMap = parseJsonFile(variantMapPath, "variant-map");
   const suf = shardSuffix();
 
-  const skuNotFoundPath = path.join("logs", `sku-not-found${suf}.jsonl`);
+  const skuNotFoundPath = path.join(LOGS_DIR, `sku-not-found${suf}.jsonl`);
   const skuNotFoundStream = fs.createWriteStream(skuNotFoundPath, { flags: "w" });
 
   let prices;
 
-  const fromFile = process.env.AMROD_PRICES_JSON;
+  const fromFile = resolveEnvPath(process.env.AMROD_PRICES_JSON);
   if (fromFile) {
     console.log(`💰 Loading Amrod prices from ${fromFile} ...`);
-    const raw = JSON.parse(fs.readFileSync(fromFile, "utf8"));
+    const raw = parseJsonFile(fromFile, "Amrod prices");
     prices = Array.isArray(raw) ? raw : raw?.prices ?? raw?.Prices ?? raw?.data;
     if (!Array.isArray(prices)) {
       throw new Error("AMROD_PRICES_JSON must contain an array (or prices[])");
@@ -375,7 +401,7 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
     process.exit(0);
   }
 
-  const jsonlPath = path.join("data", `variant-price-updates${suf}.jsonl`);
+  const jsonlPath = path.join(DATA_DIR, `variant-price-updates${suf}.jsonl`);
   fs.writeFileSync(jsonlPath, lines.join("\n") + "\n", "utf8");
 
   console.log(`✅ JSONL created: ${jsonlPath} (updates=${lines.length}, skipped=${skipped})`);
@@ -429,7 +455,7 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
 
   // Persist result URL for later inspection
   fs.writeFileSync(
-    path.join("logs", `bulk-op-result${suf}.json`),
+    path.join(LOGS_DIR, `bulk-op-result${suf}.json`),
     JSON.stringify(
       { operationId: finished.id, url: finished.url, completedAt: finished.completedAt },
       null,
@@ -439,8 +465,8 @@ async function downloadAndLogBulkFailures({ resultUrl, outErrorsJsonlPath, outSu
   );
 
   // Download results and log failures
-  const errorsPath = path.join("logs", `bulk-op-errors${suf}.jsonl`);
-  const summaryPath = path.join("logs", `bulk-op-summary${suf}.json`);
+  const errorsPath = path.join(LOGS_DIR, `bulk-op-errors${suf}.jsonl`);
+  const summaryPath = path.join(LOGS_DIR, `bulk-op-summary${suf}.json`);
 
   console.log("⬇️ Downloading bulk results + logging failures...");
   const summary = await downloadAndLogBulkFailures({
