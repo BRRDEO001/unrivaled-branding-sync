@@ -1,5 +1,6 @@
-# Archives ACTIVE Shopify products where every variant has no usable price
-# (missing, blank, or <= 0). Default workflow run is dry-run only.
+# Archives ACTIVE products whose variant SKUs never appear on any Amrod /Prices/ row
+# that resolves through variant-map.json (same rules as price-apply-bulk). Matches
+# “pricing sync couldn’t target this product”, not “Shopify price is $0”.
 name: Shopify — Archive products without pricing
 
 on:
@@ -25,10 +26,15 @@ jobs:
       SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
       SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
       SHOPIFY_API_VERSION: "2026-01"
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
       ARCHIVE_DRY_RUN: ${{ inputs.dry_run }}
       ARCHIVE_MAX_PRODUCTS: ${{ inputs.max_products }}
       ARCHIVE_DELAY_MS: "400"
       PRODUCTS_PAGE_SIZE: "50"
+      VARIANT_MAP_JSON: ${{ github.workspace }}/price-fetch-once/data/variant-map.json
+      AMROD_PRICES_JSON: ${{ github.workspace }}/price-fetch-once/data/amrod-prices.json
 
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +43,20 @@ jobs:
         with:
           node-version: 20
 
-      - name: Archive active products with no priced variants
+      - name: Build SKU → variant map + download Amrod prices
+        working-directory: price-fetch-once
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+          SHOPIFY_API_VERSION: "2026-01"
+          AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+          AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+          AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+        run: |
+          node prices-build-variant-map.js
+          node download-amrod-prices.js
+
+      - name: Archive products not reachable by Amrod bulk pricing
         working-directory: product-fetch-once
         run: node archive-unpriced-products.js
 
