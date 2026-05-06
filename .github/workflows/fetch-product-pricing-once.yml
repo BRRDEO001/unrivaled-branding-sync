@@ -93,15 +93,29 @@ jobs:
         with:
           node-version: 20
 
+      # Merge artifacts here — upload-artifact/download-artifact can preserve repo-relative paths
+      # OR flatten files at the artifact root, so we normalize into price-fetch-once/data/.
       - uses: actions/download-artifact@v4
         with:
           name: pricing-variant-map
-          path: .
+          path: artifact-download
 
       - uses: actions/download-artifact@v4
         with:
           name: pricing-amrod-prices
-          path: .
+          path: artifact-download
+
+      - name: Lay out variant-map + amrod-prices for bulk apply
+        run: |
+          set -euo pipefail
+          mkdir -p price-fetch-once/data
+          MAP="$(find artifact-download -name variant-map.json -type f | head -1)"
+          PRICES="$(find artifact-download -name amrod-prices.json -type f | head -1)"
+          if [ -z "$MAP" ]; then echo "::error::variant-map.json not found under artifact-download"; find artifact-download -type f || true; exit 1; fi
+          if [ -z "$PRICES" ]; then echo "::error::amrod-prices.json not found under artifact-download"; find artifact-download -type f || true; exit 1; fi
+          cp "$MAP" price-fetch-once/data/variant-map.json
+          cp "$PRICES" price-fetch-once/data/amrod-prices.json
+          ls -la price-fetch-once/data/
 
       - name: Apply prices (bulk, sharded)
         working-directory: price-fetch-once
