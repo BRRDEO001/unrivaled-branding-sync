@@ -1,0 +1,49 @@
+# Archives ACTIVE Shopify products where every variant has no usable price
+# (missing, blank, or <= 0). Default workflow run is dry-run only.
+name: Shopify — Archive products without pricing
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, only list products that would be archived (no changes)."
+        required: true
+        default: true
+        type: boolean
+      max_products:
+        description: "Stop after this many archives (0 = no limit). Applies per run."
+        required: false
+        default: "0"
+
+jobs:
+  archive-unpriced:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 360
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+      SHOPIFY_API_VERSION: "2026-01"
+      ARCHIVE_DRY_RUN: ${{ inputs.dry_run }}
+      ARCHIVE_MAX_PRODUCTS: ${{ inputs.max_products }}
+      ARCHIVE_DELAY_MS: "400"
+      PRODUCTS_PAGE_SIZE: "50"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Archive active products with no priced variants
+        working-directory: product-fetch-once
+        run: node archive-unpriced-products.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: archive-unpriced-logs
+          path: product-fetch-once/logs/
+          if-no-files-found: ignore
