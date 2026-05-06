@@ -16,6 +16,20 @@ import {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function normalizeSku(s) {
+  return String(s || "").trim();
+}
+
+function pickSkuCandidates(p) {
+  const full = normalizeSku(
+    p.fullCode ?? p.FullCode ?? p.full_code ?? p.SKU ?? p.sku
+  );
+  const simple = normalizeSku(
+    p.simplecode ?? p.simpleCode ?? p.SimpleCode ?? p.simple_code
+  );
+  return [...new Set([full, simple].filter(Boolean))];
+}
+
 function getMarkupPct(base) {
   for (const b of MARKUP_BRACKETS) {
     if (base >= b.min && base <= b.max) return b.pct;
@@ -61,9 +75,18 @@ async function fetchJson(url, opts = {}) {
   });
 
   for (const p of prices) {
-    const sku = String(p.fullCode || "").trim();
     const base = Number(p.price);
-    const variantId = variantMap[sku];
+    const candidates = pickSkuCandidates(p);
+    let variantId = null;
+    let matchedSku = null;
+
+    for (const c of candidates) {
+      if (variantMap[c]) {
+        variantId = variantMap[c];
+        matchedSku = c;
+        break;
+      }
+    }
 
     if (!variantId || !Number.isFinite(base)) continue;
 
@@ -83,7 +106,7 @@ async function fetchJson(url, opts = {}) {
       }
     );
 
-    console.log(`💲 ${sku} → ${finalPrice}`);
+    console.log(`💲 ${matchedSku} → ${finalPrice}`);
     await sleep(300); // keep Shopify happy
   }
 

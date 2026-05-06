@@ -15,9 +15,9 @@ jobs:
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -25,7 +25,7 @@ jobs:
         working-directory: product-fetch-once
         run: node fetch-amrod-stock-json.js
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: amrod-stock-json
           path: product-fetch-once/data/amrod-stock.json
@@ -41,9 +41,9 @@ jobs:
       SHOPIFY_API_VERSION: "2026-01"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -51,7 +51,7 @@ jobs:
         working-directory: product-fetch-once
         run: node fetch-shopify-sku-map.js
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: shopify-sku-map
           path: product-fetch-once/data/shopify-sku-map.json
@@ -91,18 +91,18 @@ jobs:
       SHOPIFY_SKU_MAP_JSON: data/shopify-sku-map.json
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: amrod-stock-json
           path: product-fetch-once/data
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: shopify-sku-map
           path: product-fetch-once/data
@@ -111,7 +111,7 @@ jobs:
         working-directory: product-fetch-once
         run: node stock-apply-full.js
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: stock-once-shard-${{ matrix.shard }}-logs

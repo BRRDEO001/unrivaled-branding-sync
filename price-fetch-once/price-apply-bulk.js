@@ -28,19 +28,31 @@ function normalizeSku(s) {
   return String(s || "").trim();
 }
 
-// Strips "-0-0" style suffixes (e.g. "-1-0", "-2-3") if present
-function stripFullCodeSuffix(fullCode) {
-  const s = normalizeSku(fullCode);
-  return s.replace(/-\d+-\d+$/, "");
-}
-
 function pickSkuCandidates(p) {
-  const full = normalizeSku(p.fullCode);
-  const simple = normalizeSku(p.simplecode || p.simpleCode);
-  const stripped = stripFullCodeSuffix(full);
+  const full = normalizeSku(
+    p.fullCode ?? p.FullCode ?? p.full_code ?? p.SKU ?? p.sku
+  );
+  const simple = normalizeSku(
+    p.simplecode ?? p.simpleCode ?? p.SimpleCode ?? p.simple_code
+  );
+  const productFull = normalizeSku(
+    p.productFullCode ??
+      p.ProductFullCode ??
+      p.parentFullCode ??
+      p.ParentFullCode ??
+      p.masterFullCode ??
+      p.MasterFullCode ??
+      p.productFull ??
+      p.ProductFull ??
+      (typeof p.product === "object" && p.product
+        ? p.product.fullCode ?? p.product.FullCode
+        : null)
+  );
 
-  // Try exact first, then simple, then stripped
-  return [full, simple, stripped].filter(Boolean);
+  // Match product once-off import (`import-single-product.js` buildDesiredVariants):
+  // SKU = v.fullCode || v.simpleCode || product.fullCode per variant.
+  // Single-variant products use product.fullCode || product.simpleCode (same row keys often suffice).
+  return [...new Set([full, simple, productFull].filter(Boolean))];
 }
 
 function getMarkupPct(base) {
