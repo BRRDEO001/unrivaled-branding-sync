@@ -33,7 +33,69 @@ export function makeLogger() {
   };
 }
 
-async function runWithConcurrency(items, concurrency, worker) {
+/**
+ * Read this run's sync-fail JSONL and write a consolidated JSON array of unique
+ * failed SKUs the retry workflow can consume directly.
+ *
+ * Output: logs/failed-products[-shard-N].json
+ *   [{ amrodCode, productName, lastStage, lastMessage, occurrences }]
+ */
+export function writeFailedProductsJson(failPath, { shardIndex = null } = {}) {
+  if (!failPath || !fs.existsSync(failPath)) return null;
+
+  const text = fs.readFileSync(failPath, "utf8");
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return null;
+
+  const byCode = new Map();
+  for (const line of lines) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const code = String(entry.amrodCode ?? entry.extra?.amrodCode ?? "").trim();
+    if (!code) continue;
+    const prev = byCode.get(code);
+    if (prev) {
+      prev.occurrences++;
+      prev.lastStage = entry.step ?? entry.stage ?? prev.lastStage;
+      prev.lastMessage = entry.error ?? entry.message ?? prev.lastMessage;
+    } else {
+      byCode.set(code, {
+        amrodCode: code,
+        productName: entry.productName ?? null,
+        lastStage: entry.step ?? entry.stage ?? null,
+        lastMessage: entry.error ?? entry.message ?? null,
+        occurrences: 1,
+      });
+    }
+  }
+
+  if (!byCode.size) return null;
+
+  const arr = [...byCode.values()].sort((a, b) => a.amrodCode.localeCompare(b.amrodCode));
+  const fileName =
+    shardIndex != null && Number.isFinite(Number(shardIndex))
+      ? `failed-products-shard-${shardIndex}.json`
+      : "failed-products.json";
+  const outPath = path.join(LOG_DIR, fileName);
+
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify(
+      { generatedAt: new Date().toISOString(), shardIndex, count: arr.length, products: arr },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+
+  return { path: outPath, count: arr.length };
+}
+
+export async function runWithConcurrency(items, concurrency, worker) {
   let index = 0;
 
   const runners = Array.from({ length: concurrency }, async () => {
@@ -114,4 +176,16 @@ export const syncAllProducts = async () => {
       }
     }
   });
+
+  try {
+    const shardIndex = SHARD_COUNT > 1 ? SHARD_INDEX : null;
+    const summary = writeFailedProductsJson(logger.paths.failPath, { shardIndex });
+    if (summary) {
+      console.log(`📝 Failed-products JSON: ${summary.path} (${summary.count} unique SKU(s))`);
+    } else {
+      console.log("✅ No failures recorded — failed-products JSON not written");
+    }
+  } catch (e) {
+    console.warn(`::warning::Failed to write failed-products JSON: ${e?.message || e}`);
+  }
 };

@@ -76,5 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sync-logs-shard-${{ matrix.shard }}
-          path: product-fetch-once/logs/**/*.jsonl
+          path: |
+            product-fetch-once/logs/**/*.jsonl
+            product-fetch-once/logs/**/*.json
           if-no-files-found: ignore

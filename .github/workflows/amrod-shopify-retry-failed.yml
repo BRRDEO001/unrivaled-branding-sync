@@ -1,0 +1,143 @@
+name: Amrod → Shopify Retry Failed Products
+
+on:
+  workflow_dispatch:
+    inputs:
+      import_run_id:
+        description: "Run ID of the 'Amrod → Shopify Product Import' workflow whose artifacts to retry. Leave blank to use the most recent run."
+        required: false
+        default: ""
+      max_rounds:
+        description: "Max retry rounds (default 3)"
+        required: false
+        default: "3"
+      with_failed_products:
+        description: "Also include cumulative logs/failed-products.jsonl (older runs)"
+        required: false
+        type: boolean
+        default: false
+      concurrency:
+        description: "Concurrent product workers"
+        required: false
+        default: "6"
+      delete_existing:
+        description: "Upsert: delete existing Shopify product by SKU before re-import (recommended). Uncheck to create-only."
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 330
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+      CONCURRENCY: ${{ inputs.concurrency }}
+      IMAGES_MODE: "default+colours"
+      REQUEST_DELAY_MS: "120"
+      IMAGE_MIN_INTERVAL_MS: "350"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Verify Actions secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SHOPIFY_TOKEN:-}" ] && missing+=(SHOPIFY_TOKEN)
+          [ -z "${SHOPIFY_STORE:-}" ] && missing+=(SHOPIFY_STORE)
+          [ -z "${AMROD_USERNAME:-}" ] && missing+=(AMROD_USERNAME)
+          [ -z "${AMROD_PASSWORD:-}" ] && missing+=(AMROD_PASSWORD)
+          [ -z "${AMROD_CUSTOMER_CODE:-}" ] && missing+=(AMROD_CUSTOMER_CODE)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error title=Missing secrets::Job uses environment: synced. Add these under Settings → Environments → synced → Environment secrets (or repository secrets): ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: product-fetch-once
+        run: npm install --no-audit --no-fund
+
+      - name: Resolve import run ID
+        id: resolve_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id="${{ inputs.import_run_id }}"
+          if [ -z "$run_id" ]; then
+            echo "Looking up the most recent 'Amrod → Shopify Product Import' run…"
+            run_id=$(gh run list \
+              --workflow amrod-shopify-import.yml \
+              --limit 1 \
+              --json databaseId \
+              -q '.[0].databaseId')
+          fi
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "::error title=No import run found::Could not find a previous import run. Pass import_run_id explicitly."
+            exit 1
+          fi
+          echo "Using import run ID: $run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download import logs from previous run
+        uses: actions/download-artifact@v4
+        with:
+          path: product-fetch-once/logs
+          pattern: sync-logs-shard-*
+          merge-multiple: true
+          run-id: ${{ steps.resolve_run.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: List downloaded logs
+        run: |
+          echo "Logs in product-fetch-once/logs:"
+          ls -la product-fetch-once/logs || true
+          echo
+          echo "JSON failure files:"
+          find product-fetch-once/logs -maxdepth 2 -name 'failed-products*.json' -print || true
+          echo
+          echo "JSONL failure files:"
+          find product-fetch-once/logs -maxdepth 2 -name 'sync-fail-*.jsonl' -print || true
+
+      - name: Dry-run summary (count failed SKUs)
+        working-directory: product-fetch-once
+        run: node retry-failed-sync.js --dry-run ${{ inputs.with_failed_products && '--with-failed-products' || '' }}
+
+      - name: Retry failed products
+        working-directory: product-fetch-once
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ "${{ inputs.with_failed_products }}" = "true" ]; then
+            extra="$extra --with-failed-products"
+          fi
+          if [ "${{ inputs.delete_existing }}" != "true" ]; then
+            extra="$extra --no-delete-existing"
+          fi
+          node retry-failed-sync.js --max-rounds "${{ inputs.max_rounds }}" $extra
+
+      - name: Upload retry logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retry-logs-${{ steps.resolve_run.outputs.run_id }}
+          path: |
+            product-fetch-once/logs/**/*.jsonl
+            product-fetch-once/logs/**/*.json
+          if-no-files-found: ignore
