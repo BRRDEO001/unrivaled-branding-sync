@@ -39,8 +39,22 @@ function buildBrandingLocations(amrod) {
 }
 
 /**
+ * Embroidery is excluded from saved branding options (business rule).
+ * Match by brandingName (case-insensitive substring) so variants like
+ * "Embroidery", "EMBROIDERY", "Special Embroidery" are all caught.
+ */
+function isEmbroideryMethod(method) {
+  const name = String(method?.brandingName || "").toLowerCase();
+  return name.includes("embroidery");
+}
+
+/**
  * Build branding options grouped by position → amrod.branding_options
  * ⚠️ VERY IMPORTANT: Do not change branding import structure.
+ *
+ * Embroidery methods are filtered out before save (see isEmbroideryMethod).
+ * Positions whose methods all turn out to be embroidery are still emitted
+ * with an empty array so the position itself is preserved.
  */
 function buildBrandingOptions(amrod) {
   if (!Array.isArray(amrod?.brandings)) return {};
@@ -48,7 +62,9 @@ function buildBrandingOptions(amrod) {
   const options = {};
 
   for (const pos of amrod.brandings) {
-    options[pos.positionCode] = (pos.method ?? []).map((m) => ({
+    const methods = (pos.method ?? []).filter((m) => !isEmbroideryMethod(m));
+
+    options[pos.positionCode] = methods.map((m) => ({
       brandingCode: m.brandingCode,
       brandingName: m.brandingName,
       brandingDepartment: m.brandingDepartment ?? null,
