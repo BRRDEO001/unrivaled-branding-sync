@@ -224,6 +224,35 @@ function buildVariants(amrod, useColour, useSize) {
 }
 
 /**
+ * Pick representative product dimensions (cm) for product-level metafields.
+ *
+ * Source: first variant's productDimension (length / width / height).
+ * Height fallback: packagingAndDimension.cartonSizeDimensionH (carton height) when
+ *   product height itself isn't supplied.
+ *
+ * Values are written as-is; key suffix `_cm` reflects the intended unit. If Amrod
+ * is found to return another unit (e.g. mm), apply a conversion here in one place.
+ */
+function buildProductShippingDimensionsCm(amrod) {
+  const variants = Array.isArray(amrod?.variants) ? amrod.variants : [];
+  const v = variants[0] || {};
+  const pd = v.productDimension ?? {};
+  const pack = v.packagingAndDimension ?? {};
+
+  const toNum = (val) => {
+    if (val == null || val === "") return null;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  return {
+    length_cm: toNum(pd.length),
+    width_cm: toNum(pd.width),
+    height_cm: toNum(pd.height) ?? toNum(pack.cartonSizeDimensionH),
+  };
+}
+
+/**
  * Build a CourierGuy-friendly dimensions map in a PRODUCT metafield
  * keyed by SKU, since REST product create can't reliably attach variant metafields inline.
  *
@@ -294,6 +323,35 @@ export const mapAmrodToShopifyProduct = (amrod, tags = []) => {
   // ✅ Dimensions map for shipping apps (Courier Guy)
   const variantDimensionsMap = buildVariantDimensionsMap(amrod);
 
+  // ✅ Product-level shipping dimensions in cm (flat metafields for apps/themes that
+  //    can't parse the variant_dimensions JSON map).
+  const productDimsCm = buildProductShippingDimensionsCm(amrod);
+  const dimensionMetafields = [];
+  if (productDimsCm.height_cm != null) {
+    dimensionMetafields.push({
+      namespace: "shipping",
+      key: "height_cm",
+      value: String(productDimsCm.height_cm),
+      type: "number_decimal",
+    });
+  }
+  if (productDimsCm.length_cm != null) {
+    dimensionMetafields.push({
+      namespace: "shipping",
+      key: "length_cm",
+      value: String(productDimsCm.length_cm),
+      type: "number_decimal",
+    });
+  }
+  if (productDimsCm.width_cm != null) {
+    dimensionMetafields.push({
+      namespace: "shipping",
+      key: "width_cm",
+      value: String(productDimsCm.width_cm),
+      type: "number_decimal",
+    });
+  }
+
   return {
     product: {
       // ✅ product name + description
@@ -359,6 +417,9 @@ export const mapAmrodToShopifyProduct = (amrod, tags = []) => {
           value: JSON.stringify(variantDimensionsMap),
           type: "json",
         },
+
+        // ✅ Flat product-level shipping dimensions in cm (only when present)
+        ...dimensionMetafields,
       ],
     },
   };
