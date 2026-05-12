@@ -171,7 +171,9 @@ function buildImages(amrod) {
  * - weight stored on variant (Courier Guy typically reads Shopify variant weight)
  * - dimensions stored in product metafield (shipping.variant_dimensions) keyed by SKU
  *
- * ✅ Weight is ALWAYS written as grams ("g") in Shopify
+ * ✅ Weight is ALWAYS written as kilograms ("kg") — Amrod returns kg.
+ *    (import-single-product.js later overrides this with a small packaging
+ *    buffer for shipping; this initial value still agrees on units.)
  */
 function buildVariants(amrod, useColour, useSize) {
   const list =
@@ -191,8 +193,7 @@ function buildVariants(amrod, useColour, useSize) {
   for (const v of list) {
     const sku = v?.fullCode ?? amrod?.fullCode ?? amrod?.simpleCode ?? "";
 
-    // Endpoint returns a number; treat it as grams and always write unit "g"
-    const weightG =
+    const weightKg =
       v?.productDimension?.weight != null ? Number(v.productDimension.weight) : null;
 
     const variant = {
@@ -201,9 +202,9 @@ function buildVariants(amrod, useColour, useSize) {
       requires_shipping: true,
     };
 
-    if (Number.isFinite(weightG)) {
-      variant.weight = weightG;
-      variant.weight_unit = "g";
+    if (Number.isFinite(weightKg)) {
+      variant.weight = weightKg;
+      variant.weight_unit = "kg";
     }
 
     // Options (only if the product actually uses them)
@@ -257,7 +258,7 @@ function buildProductShippingDimensionsCm(amrod) {
  * keyed by SKU, since REST product create can't reliably attach variant metafields inline.
  *
  * We store:
- * - weight_g (ALWAYS grams)
+ * - weight_kg (Amrod returns kilograms)
  * - length / width / height (raw numbers from Amrod)
  * - dimension_units: "unknown" (you can change later once you confirm Amrod units)
  */
@@ -282,11 +283,10 @@ function buildVariantDimensionsMap(amrod) {
     const height =
       pack.cartonSizeDimensionH != null ? Number(pack.cartonSizeDimensionH) : null;
 
-    // Endpoint returns a number; treat it as grams
-    const weight_g = pd.weight != null ? Number(pd.weight) : null;
+    const weight_kg = pd.weight != null ? Number(pd.weight) : null;
 
     map[sku] = {
-      weight_g: Number.isFinite(weight_g) ? weight_g : null,
+      weight_kg: Number.isFinite(weight_kg) ? weight_kg : null,
       length: Number.isFinite(length) ? length : null,
       width: Number.isFinite(width) ? width : null,
       height: Number.isFinite(height) ? height : null,
