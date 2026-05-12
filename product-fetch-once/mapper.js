@@ -326,13 +326,15 @@ export const mapAmrodToShopifyProduct = (amrod, tags = []) => {
   // ✅ Product-level shipping dimensions in cm (flat metafields for apps/themes that
   //    can't parse the variant_dimensions JSON map).
   const productDimsCm = buildProductShippingDimensionsCm(amrod);
+  // NOTE: these metafield definitions exist in the shop as `single_line_text_field`.
+  // Values are still numeric (as strings) so any consumer can Number(...) them.
   const dimensionMetafields = [];
   if (productDimsCm.height_cm != null) {
     dimensionMetafields.push({
       namespace: "shipping",
       key: "height_cm",
       value: String(productDimsCm.height_cm),
-      type: "number_decimal",
+      type: "single_line_text_field",
     });
   }
   if (productDimsCm.length_cm != null) {
@@ -340,7 +342,7 @@ export const mapAmrodToShopifyProduct = (amrod, tags = []) => {
       namespace: "shipping",
       key: "length_cm",
       value: String(productDimsCm.length_cm),
-      type: "number_decimal",
+      type: "single_line_text_field",
     });
   }
   if (productDimsCm.width_cm != null) {
@@ -348,7 +350,7 @@ export const mapAmrodToShopifyProduct = (amrod, tags = []) => {
       namespace: "shipping",
       key: "width_cm",
       value: String(productDimsCm.width_cm),
-      type: "number_decimal",
+      type: "single_line_text_field",
     });
   }
 
