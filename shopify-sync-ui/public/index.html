@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="shopify-api-key" content="" id="shopify-api-key-meta" />
+    <title>Amrod Product Sync</title>
+    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1>Amrod product sync</h1>
+        <p class="subtitle">
+          Search by exact Amrod product name. All matching products are synced to Shopify
+          (images, variants, branding, dimensions, prices).
+        </p>
+      </header>
+
+      <section class="card">
+        <label class="field">
+          <span class="label">Product name</span>
+          <input
+            id="productName"
+            type="text"
+            placeholder="Paste exact name from Amrod"
+            autocomplete="off"
+          />
+          <span class="hint">Match is case-sensitive. Extra spaces at the start/end are ignored.</span>
+        </label>
+
+        <div id="staffKeyRow" class="field hidden">
+          <span class="label">Staff access key</span>
+          <input id="staffKey" type="password" placeholder="Only if prompted" autocomplete="off" />
+        </div>
+
+        <div class="actions">
+          <button id="syncBtn" type="button" class="btn primary">Sync to Shopify</button>
+        </div>
+
+        <div id="status" class="status hidden" role="status"></div>
+      </section>
+
+      <footer class="footer">
+        <p>Sync runs in the background (about 2–10 minutes depending on how many products match).</p>
+      </footer>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

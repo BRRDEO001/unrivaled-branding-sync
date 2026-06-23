@@ -109,6 +109,55 @@ export async function runWithConcurrency(items, concurrency, worker) {
   await Promise.all(runners);
 }
 
+export function normalizeProductName(name) {
+  return String(name || "").trim();
+}
+
+/** Products whose `productName` exactly matches `searchName` (trimmed, case-sensitive). */
+export function filterProductsByExactName(products, searchName) {
+  const needle = normalizeProductName(searchName);
+  if (!needle || !Array.isArray(products)) return [];
+  return products.filter((p) => normalizeProductName(p.productName) === needle);
+}
+
+export async function syncProductList(products, { logger, stage = "syncAllProducts" } = {}) {
+  const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
+  let done = 0;
+  const total = products.length;
+  const start = Date.now();
+
+  await runWithConcurrency(products, CONCURRENCY, async (product) => {
+    const amrodCode = product.fullCode || product.simpleCode || "UNKNOWN_CODE";
+
+    try {
+      await runSingleProductImportPipeline(product, logger);
+    } catch (err) {
+      logger.fail({
+        amrodCode,
+        step: "product",
+        error: String(err?.message || err),
+      });
+
+      logProductFailure({
+        amrod: product,
+        stage,
+        error: err,
+        extra: { amrodCode },
+      });
+    } finally {
+      const finished = ++done;
+      if (finished % 100 === 0 || finished === total || total <= 20) {
+        const elapsedSec = (Date.now() - start) / 1000;
+        const rate = finished / Math.max(elapsedSec, 1);
+        const remainingSec = (total - finished) / Math.max(rate, 0.001);
+        const eta =
+          total > finished ? ` | ETA ~ ${(remainingSec / 60).toFixed(1)}m` : "";
+        console.log(`📦 Progress: ${finished}/${total} | ${rate.toFixed(2)} prod/s${eta}`);
+      }
+    }
+  });
+}
+
 export const syncAllProducts = async () => {
   const logger = makeLogger();
   console.log(`🧾 Logging to:\n- ${logger.paths.okPath}\n- ${logger.paths.failPath}`);
@@ -133,49 +182,13 @@ export const syncAllProducts = async () => {
     products = products.filter((_, idx) => idx % SHARD_COUNT === SHARD_INDEX);
   }
 
-  const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
   const IMAGES_MODE = String(process.env.IMAGES_MODE || "default+colours");
 
   console.log(
-    `⚡ Speed settings: CONCURRENCY=${CONCURRENCY} IMAGES_MODE=${IMAGES_MODE} SHARD_INDEX=${SHARD_INDEX}/${SHARD_COUNT}`
+    `⚡ Speed settings: CONCURRENCY=${Number(process.env.CONCURRENCY || 4)} IMAGES_MODE=${IMAGES_MODE} SHARD_INDEX=${SHARD_INDEX}/${SHARD_COUNT}`
   );
 
-  let done = 0;
-  const total = products.length;
-  const start = Date.now();
-
-  await runWithConcurrency(products, CONCURRENCY, async (product) => {
-    const amrodCode = product.fullCode || product.simpleCode || "UNKNOWN_CODE";
-
-    try {
-      await runSingleProductImportPipeline(product, logger);
-    } catch (err) {
-      logger.fail({
-        amrodCode,
-        step: "product",
-        error: String(err?.message || err),
-      });
-
-      logProductFailure({
-        amrod: product,
-        stage: "syncAllProducts",
-        error: err,
-        extra: { amrodCode },
-      });
-    } finally {
-      const finished = ++done;
-      if (finished % 100 === 0 || finished === total) {
-        const elapsedSec = (Date.now() - start) / 1000;
-        const rate = finished / Math.max(elapsedSec, 1);
-        const remainingSec = (total - finished) / Math.max(rate, 0.001);
-        console.log(
-          `📦 Progress: ${finished}/${total} | ${rate.toFixed(
-            2
-          )} prod/s | ETA ~ ${(remainingSec / 3600).toFixed(2)}h`
-        );
-      }
-    }
-  });
+  await syncProductList(products, { logger, stage: "syncAllProducts" });
 
   try {
     const shardIndex = SHARD_COUNT > 1 ? SHARD_INDEX : null;

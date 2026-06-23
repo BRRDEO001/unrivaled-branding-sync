@@ -1,0 +1,24 @@
+name = "amrod-sync-ui"
+main = "src/worker.js"
+compatibility_date = "2024-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Set secrets via: wrangler secret put GITHUB_PAT
+#   wrangler secret put SHOPIFY_API_SECRET
+#   wrangler secret put SYNC_API_KEY   (optional staff password)
+#
+# Vars (non-secret):
+#   GITHUB_REPO = "owner/unrivaled-branding-sync"
+#   GITHUB_WORKFLOW_FILE = "amrod-shopify-sync-by-name.yml"
+#   ALLOWED_SHOP = "your-store.myshopify.com"   (optional)
+
+[vars]
+GITHUB_REPO = "BRRDEO001/unrivaled-branding-sync"
+GITHUB_WORKFLOW_FILE = "amrod-shopify-sync-by-name.yml"
+# Public Client ID from Shopify custom app → Configuration
+SHOPIFY_API_KEY = ""
+# Optional: lock to one store (e.g. your-store.myshopify.com)
+# ALLOWED_SHOP = ""

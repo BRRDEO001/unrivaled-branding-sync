@@ -1,0 +1,116 @@
+name: Amrod → Shopify Sync by Product Name
+
+on:
+  workflow_dispatch:
+    inputs:
+      product_name:
+        description: "Exact Amrod product name (case-sensitive, trimmed). All catalog rows with this exact productName are synced."
+        required: true
+        type: string
+      dry_run:
+        description: "List matches only — do not sync to Shopify"
+        required: false
+        type: boolean
+        default: false
+      delete_existing:
+        description: "Delete existing Shopify product by SKU before re-import (recommended)"
+        required: false
+        type: boolean
+        default: true
+      apply_prices:
+        description: "Apply variant prices from Amrod /Prices/ after product import"
+        required: false
+        type: boolean
+        default: true
+      concurrency:
+        description: "Concurrent product workers"
+        required: false
+        default: "4"
+
+jobs:
+  sync-by-name:
+    runs-on: ubuntu-latest
+    environment: synced
+    timeout-minutes: 120
+
+    env:
+      SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+      SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+
+      AMROD_USERNAME: ${{ secrets.AMROD_USERNAME }}
+      AMROD_PASSWORD: ${{ secrets.AMROD_PASSWORD }}
+      AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
+
+      PRODUCT_NAME: ${{ inputs.product_name }}
+      CONCURRENCY: ${{ inputs.concurrency }}
+      IMAGES_MODE: "default+colours"
+      REQUEST_DELAY_MS: "120"
+      IMAGE_MIN_INTERVAL_MS: "350"
+      SHOPIFY_PRICE_DELAY_MS: "150"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Verify Actions secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${SHOPIFY_TOKEN:-}" ] && missing+=(SHOPIFY_TOKEN)
+          [ -z "${SHOPIFY_STORE:-}" ] && missing+=(SHOPIFY_STORE)
+          [ -z "${AMROD_USERNAME:-}" ] && missing+=(AMROD_USERNAME)
+          [ -z "${AMROD_PASSWORD:-}" ] && missing+=(AMROD_PASSWORD)
+          [ -z "${AMROD_CUSTOMER_CODE:-}" ] && missing+=(AMROD_CUSTOMER_CODE)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error title=Missing secrets::Job uses environment: synced. Add these under Settings → Environments → synced → Environment secrets (or repository secrets): ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Validate product name input
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${PRODUCT_NAME:-}"
+          trimmed="$(printf '%s' "$name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          if [ -z "$trimmed" ]; then
+            echo "::error title=Missing product name::Enter an exact Amrod productName in the workflow input."
+            exit 1
+          fi
+          echo "Will search for exact productName: \"$trimmed\""
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: product-fetch-once
+        run: npm install --no-audit --no-fund
+
+      - name: Sync products by name
+        working-directory: product-fetch-once
+        shell: bash
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            extra="$extra --dry-run"
+          fi
+          if [ "${{ inputs.delete_existing }}" != "true" ]; then
+            extra="$extra --no-delete-existing"
+          fi
+          if [ "${{ inputs.apply_prices }}" != "true" ]; then
+            extra="$extra --no-apply-prices"
+          fi
+          node sync-by-product-name.js --name "$PRODUCT_NAME" $extra
+
+      - name: Upload logs
+        if: always() && inputs.dry_run == false
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-by-name-logs
+          path: |
+            product-fetch-once/logs/**/*.jsonl
+            product-fetch-once/logs/**/*.json
+          if-no-files-found: ignore

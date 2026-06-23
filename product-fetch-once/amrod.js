@@ -5,6 +5,7 @@ import {
   AMROD_AUTH_DETAILS,
   AMROD_UPDATED_PRODUCTS_ENDPOINT,
   AMROD_UPDATED_PRICES_ENDPOINT,
+  AMROD_PRICES_ALL_ENDPOINT,
   AMROD_STOCK_ALL_ENDPOINT,
   AMROD_STOCK_UPDATED_ENDPOINT,
 } from "./config.js";
@@ -201,6 +202,13 @@ export const fetchUpdatedPrices = async (token) => {
   const res = await amrodGetJson(url, token);
   const raw = await readJsonOptional(res, "Amrod Prices GetUpdated");
   return coerceJsonArray(raw, "Amrod Prices GetUpdated");
+};
+
+export const fetchAmrodPricesAll = async (token) => {
+  const url = requireCustomerCodeUrl(AMROD_PRICES_ALL_ENDPOINT);
+  const res = await amrodGetJson(url, token);
+  const raw = await readJsonOptional(res, "Amrod Prices (all)");
+  return coerceJsonArray(raw, "Amrod Prices (all)");
 };
 
 export const fetchStockAll = async (token) => {

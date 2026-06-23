@@ -5,6 +5,7 @@ export const AMROD_UPDATED_PRODUCTS_ENDPOINT =
   "https://vendorapi.amrod.co.za/api/v1/Products/GetUpdatedProductsAndBranding";
 export const AMROD_UPDATED_PRICES_ENDPOINT =
   "https://vendorapi.amrod.co.za/api/v1/Prices/GetUpdated";
+export const AMROD_PRICES_ALL_ENDPOINT = "https://vendorapi.amrod.co.za/api/v1/Prices/";
 export const AMROD_STOCK_ALL_ENDPOINT = "https://vendorapi.amrod.co.za/api/v1/Stock/";
 export const AMROD_STOCK_UPDATED_ENDPOINT =
   "https://vendorapi.amrod.co.za/api/v1/Stock/GetUpdated";

@@ -7,7 +7,7 @@ import {
   DEFAULT_MARKUP_PCT_ABOVE_MAX,
 } from "../price-fetch-once/pricing-constants.js";
 
-function pickSkuCandidates(p) {
+export function pickSkuCandidates(p) {
   const normalizeSku = (s) => String(s || "").trim();
   const full = normalizeSku(
     p.fullCode ?? p.FullCode ?? p.full_code ?? p.SKU ?? p.sku
@@ -19,7 +19,7 @@ function pickSkuCandidates(p) {
   return [...new Set([full, simple, stripped].filter(Boolean))];
 }
 
-function rowBasePrice(p) {
+export function rowBasePrice(p) {
   const n = Number(p.price ?? p.Price ?? p.cost ?? p.Cost ?? p.unitPrice ?? p.UnitPrice);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -31,7 +31,7 @@ function getMarkupPct(base) {
   return DEFAULT_MARKUP_PCT_ABOVE_MAX;
 }
 
-function computeSellPrice(base) {
+export function computeSellPrice(base) {
   const pct = getMarkupPct(base);
   const sell = base * (1 + pct / 100);
   return sell.toFixed(2);
@@ -42,6 +42,48 @@ function filterByShard(arr) {
   const i = Number(process.env.SHARD_INDEX || 0);
   if (!Array.isArray(arr) || n <= 1) return arr;
   return arr.filter((_, idx) => idx % n === i);
+}
+
+function priceRowMatchesSkuSet(p, skuSet) {
+  return pickSkuCandidates(p).some((sku) => skuSet.has(sku));
+}
+
+/** Apply sell prices for Amrod price rows whose SKU matches any entry in `skuSet`. */
+export async function applyPricesForSkuSet(priceRows, skuSet) {
+  if (!skuSet?.size) {
+    return { ok: 0, miss: 0, skipBadPrice: 0, matchedRows: 0 };
+  }
+
+  let ok = 0;
+  let miss = 0;
+  let skipBadPrice = 0;
+  let matchedRows = 0;
+  const delayMs = Number(process.env.SHOPIFY_PRICE_DELAY_MS || 150);
+
+  for (const p of priceRows) {
+    if (!priceRowMatchesSkuSet(p, skuSet)) continue;
+    matchedRows++;
+
+    const base = rowBasePrice(p);
+    if (!Number.isFinite(base)) {
+      skipBadPrice++;
+      continue;
+    }
+
+    const sell = computeSellPrice(base);
+    const cands = pickSkuCandidates(p);
+    const rec = await findShopifyVariantBySkuCandidates(cands);
+    if (!rec?.variantId) {
+      miss++;
+      continue;
+    }
+
+    await updateShopifyVariant(rec.variantId, { price: sell });
+    ok++;
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+  }
+
+  return { ok, miss, skipBadPrice, matchedRows };
 }
 
 export async function runIncrementalPricesSync() {
