@@ -83,8 +83,93 @@ input:focus {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 8px;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: #f6f6f7;
+}
+
+.preview {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.preview h2 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.preview-meta {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fafbfb;
+}
+
+.preview-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.preview-item dl {
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 0.85rem;
+}
+
+.preview-item dt {
+  color: var(--muted);
+}
+
+.preview-item dd {
+  margin: 0;
+}
+
+.preview-suggestions {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.preview-suggestions li {
+  margin-bottom: 4px;
+}
+
+.preview-suggestions button {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
 }
 
 .btn {

@@ -43,6 +43,11 @@ npx wrangler login
 npx wrangler secret put GITHUB_PAT          # paste GitHub token
 npx wrangler secret put SHOPIFY_API_SECRET  # from Shopify app (step 3)
 
+# Amrod preview (same values as GitHub environment "synced")
+npx wrangler secret put AMROD_USERNAME
+npx wrangler secret put AMROD_PASSWORD
+npx wrangler secret put AMROD_CUSTOMER_CODE
+
 # Optional: staff password if not opening from embedded app
 npx wrangler secret put SYNC_API_KEY
 
@@ -93,10 +98,11 @@ For this UI-only trigger, the app does **not** need product write scopes — it 
 
 1. Open **Apps → Amrod Sync** in Shopify Admin
 2. Paste the **exact Amrod product name** (case-sensitive)
-3. Click **Sync to Shopify**
-4. Wait a few minutes — all Amrod rows with that exact name are imported
+3. Click **Preview from Amrod** to see matching catalog rows (code, SKUs, variants)
+4. Click **Sync to Shopify** when the preview looks correct
+5. Wait a few minutes — all Amrod rows with that exact name are imported
 
-Optional: run **Dry run** from GitHub if you want to preview matches first (staff-only).
+Optional: run **Dry run** from GitHub if you want to preview matches in Actions logs only (staff-only).
 
 ---
 

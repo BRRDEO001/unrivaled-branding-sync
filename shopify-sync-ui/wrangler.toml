@@ -8,17 +8,20 @@ binding = "ASSETS"
 
 # Set secrets via: wrangler secret put GITHUB_PAT
 #   wrangler secret put SHOPIFY_API_SECRET
+#   wrangler secret put AMROD_USERNAME
+#   wrangler secret put AMROD_PASSWORD
+#   wrangler secret put AMROD_CUSTOMER_CODE
 #   wrangler secret put SYNC_API_KEY   (optional staff password)
 #
 # Vars (non-secret):
 #   GITHUB_REPO = "owner/unrivaled-branding-sync"
 #   GITHUB_WORKFLOW_FILE = "amrod-shopify-sync-by-name.yml"
-#   ALLOWED_SHOP = "your-store.myshopify.com"   (optional)
+#   ALLOWED_SHOP = "unrivaled-branding.myshopify.com"   (optional)
 
 [vars]
 GITHUB_REPO = "BRRDEO001/unrivaled-branding-sync"
 GITHUB_WORKFLOW_FILE = "amrod-shopify-sync-by-name.yml"
 # Public Client ID from Shopify custom app → Configuration
-SHOPIFY_API_KEY = ""
+SHOPIFY_API_KEY = "2a8f2f6971ebf302f58e9f310556d00d"    
 # Optional: lock to one store (e.g. your-store.myshopify.com)
 # ALLOWED_SHOP = ""

@@ -36,7 +36,11 @@ async function verifyHs256(token, secret) {
   return crypto.subtle.verify("HMAC", key, sig, data);
 }
 
-export async function verifyShopifySessionToken(token, apiSecret, { allowedShop = null } = {}) {
+export async function verifyShopifySessionToken(
+  token,
+  apiSecret,
+  { allowedShop = null, apiKey = null } = {}
+) {
   if (!token || !apiSecret) return { ok: false, reason: "missing token or secret" };
 
   const valid = await verifyHs256(token, apiSecret);
@@ -52,6 +56,10 @@ export async function verifyShopifySessionToken(token, apiSecret, { allowedShop 
   const now = Math.floor(Date.now() / 1000);
   if (payload.nbf && now < payload.nbf - 10) return { ok: false, reason: "token not yet valid" };
   if (payload.exp && now > payload.exp + 10) return { ok: false, reason: "token expired" };
+
+  if (apiKey && payload.aud && payload.aud !== apiKey) {
+    return { ok: false, reason: "invalid API key in token" };
+  }
 
   const dest = String(payload.dest || "");
   const shop = dest.replace(/^https:\/\//, "").replace(/\/$/, "");
@@ -70,9 +78,17 @@ export async function authorizeRequest(request, env) {
   const auth = request.headers.get("Authorization") || "";
   const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
 
-  if (bearer && env.SHOPIFY_API_SECRET) {
+  if (bearer) {
+    if (!env.SHOPIFY_API_SECRET) {
+      return {
+        ok: false,
+        reason: "Server misconfigured: SHOPIFY_API_SECRET is not set. Run: npx wrangler secret put SHOPIFY_API_SECRET",
+      };
+    }
+
     const v = await verifyShopifySessionToken(bearer, env.SHOPIFY_API_SECRET, {
       allowedShop: env.ALLOWED_SHOP || null,
+      apiKey: env.SHOPIFY_API_KEY || null,
     });
     if (v.ok) return { ok: true, method: "shopify-session", shop: v.shop };
   }
@@ -82,5 +98,17 @@ export async function authorizeRequest(request, env) {
     return { ok: true, method: "api-key" };
   }
 
-  return { ok: false, reason: "Unauthorized — open this page from Shopify Admin Apps, or provide the staff API key." };
+  if (!bearer) {
+    return {
+      ok: false,
+      reason:
+        "Unauthorized — App Bridge did not send a session token. Reload from Shopify Admin → Apps.",
+    };
+  }
+
+  return {
+    ok: false,
+    reason:
+      "Unauthorized — session token invalid. Check SHOPIFY_API_SECRET matches your Shopify app's Client secret.",
+  };
 }

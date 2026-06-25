@@ -25,7 +25,7 @@ export async function triggerSyncWorkflow(env, productName) {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2023-11-28",
+      "X-GitHub-Api-Version": "2026-03-10",
       "User-Agent": "amrod-sync-ui-worker",
     },
     body: JSON.stringify({
@@ -37,12 +37,24 @@ export async function triggerSyncWorkflow(env, productName) {
     }),
   });
 
-  if (res.status === 204) {
-    const runUrl = await findLatestRunUrl(env);
+  if (res.status === 204 || res.status === 200) {
+    let actionsUrl = `https://github.com/${repo}/actions`;
+
+    if (res.status === 200) {
+      try {
+        const data = await res.json();
+        if (data?.html_url) actionsUrl = data.html_url;
+      } catch {
+        actionsUrl = await findLatestRunUrl(env);
+      }
+    } else {
+      actionsUrl = await findLatestRunUrl(env);
+    }
+
     return {
       ok: true,
       message: `Sync started for "${name}".`,
-      actionsUrl: runUrl,
+      actionsUrl,
     };
   }
 
@@ -62,7 +74,7 @@ async function findLatestRunUrl(env) {
       headers: {
         Authorization: `Bearer ${env.GITHUB_PAT}`,
         Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2023-11-28",
+        "X-GitHub-Api-Version": "2026-03-10",
       },
     });
 

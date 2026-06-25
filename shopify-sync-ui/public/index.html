@@ -3,9 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="shopify-api-key" content="" id="shopify-api-key-meta" />
+    <meta name="shopify-api-key" content="" />
     <title>Amrod Product Sync</title>
-    <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -36,8 +35,11 @@
         </div>
 
         <div class="actions">
-          <button id="syncBtn" type="button" class="btn primary">Sync to Shopify</button>
+          <button id="previewBtn" type="button" class="btn secondary" disabled>Preview from Amrod</button>
+          <button id="syncBtn" type="button" class="btn primary" disabled>Sync to Shopify</button>
         </div>
+
+        <div id="previewResults" class="preview hidden" aria-live="polite"></div>
 
         <div id="status" class="status hidden" role="status"></div>
       </section>
