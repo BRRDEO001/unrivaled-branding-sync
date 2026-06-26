@@ -27,7 +27,7 @@ function isTrackingDisabledError(error) {
 }
 
 /** fullCode → total available quantity (deduplicates by summing) */
-function aggregateStock(rows) {
+export function aggregateStock(rows) {
   const m = new Map();
   for (const item of rows) {
     const code = String(
@@ -57,7 +57,17 @@ function filterEntriesByShard(entries) {
   return entries.filter((_, idx) => idx % n === i);
 }
 
-async function applyStockWithRecovery(inventoryItemId, locationId, quantity) {
+export async function resolveStockLocationId() {
+  const locRaw = process.env.SHOPIFY_LOCATION_IDS?.trim();
+  if (locRaw) {
+    const locationId = Number(locRaw.split(",")[0].trim());
+    if (!Number.isFinite(locationId)) return null;
+    return locationId;
+  }
+  return getPrimaryLocationId();
+}
+
+export async function applyStockWithRecovery(inventoryItemId, locationId, quantity) {
   try {
     await setInventoryLevel(inventoryItemId, locationId, quantity);
     return { ok: true, trackingEnabled: false };
@@ -81,7 +91,7 @@ export async function runStockFullSyncToShopify() {
     }
     console.log(`📍 Stock apply: location ${locationId} (from SHOPIFY_LOCATION_IDS)`);
   } else {
-    locationId = await getPrimaryLocationId();
+    locationId = await resolveStockLocationId();
     if (locationId == null) {
       console.log("::notice::No primary Shopify location — skipping stock apply");
       return;

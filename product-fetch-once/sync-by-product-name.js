@@ -8,7 +8,7 @@
  */
 import { fileURLToPath } from "url";
 import path from "path";
-import { fetchAmrodToken, fetchAmrodProducts, fetchAmrodPricesAll } from "./amrod.js";
+import { fetchAmrodToken, fetchAmrodProducts, fetchAmrodPricesAll, fetchStockAll } from "./amrod.js";
 import { SHOPIFY_TOKEN } from "./config.js";
 import {
   makeLogger,
@@ -21,6 +21,7 @@ import {
 import { deleteShopifyProduct, findShopifyVariantBySkuCandidates } from "./shopify.js";
 import { amrodProductSkuCandidates } from "./incremental-products.js";
 import { applyPricesForSkuSet } from "./incremental-prices.js";
+import { applyStockForSkuSet } from "./incremental-stock.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +32,7 @@ function parseArgs(argv) {
     dryRun: false,
     deleteExisting: true,
     applyPrices: true,
+    applyStock: true,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -45,8 +47,10 @@ function parseArgs(argv) {
       out.deleteExisting = false;
     } else if (a === "--no-apply-prices") {
       out.applyPrices = false;
+    } else if (a === "--no-apply-stock") {
+      out.applyStock = false;
     } else if (a === "--help" || a === "-h") {
-      console.log(`sync-by-product-name.js [--code ALT-1101 | --name "Exact Product Name"] [--dry-run] [--no-delete-existing] [--no-apply-prices]
+      console.log(`sync-by-product-name.js [--code ALT-1101 | --name "Exact Product Name"] [--dry-run] [--no-delete-existing] [--no-apply-prices] [--no-apply-stock]
   --code   Preferred: sync one Amrod catalog row by fullCode/simpleCode.
   --name   Sync all rows with exact productName (case-sensitive, trimmed).
   Env: PRODUCT_CODE, PRODUCT_NAME, CONCURRENCY, SHOPIFY_*, AMROD_*, etc.`);
@@ -172,7 +176,7 @@ async function main() {
 
   const IMAGES_MODE = String(process.env.IMAGES_MODE || "default+colours");
   console.log(
-    `⚡ CONCURRENCY=${Number(process.env.CONCURRENCY || 4)} IMAGES_MODE=${IMAGES_MODE} applyPrices=${args.applyPrices}`
+    `⚡ CONCURRENCY=${Number(process.env.CONCURRENCY || 4)} IMAGES_MODE=${IMAGES_MODE} applyPrices=${args.applyPrices} applyStock=${args.applyStock}`
   );
 
   await syncProductList(matches, { logger, stage: "syncByProductName" });
@@ -208,6 +212,36 @@ async function main() {
         }
       } catch (e) {
         console.error("::warning title=Price apply failed::", e?.message || e);
+      }
+    }
+  }
+
+  if (args.applyStock) {
+    if (failCount) {
+      console.log(
+        `::warning::Skipping stock apply — ${failCount} product(s) failed import (variants not in Shopify yet)`
+      );
+    } else {
+      console.log("📦 Fetching Amrod stock and applying for matched SKUs…");
+      try {
+        const token = await fetchAmrodToken();
+        const stockRows = await fetchStockAll(token);
+        const skuSet = buildSkuSetFromProducts(matches);
+        const result = await applyStockForSkuSet(stockRows, skuSet);
+        if (result.skipped) {
+          console.log("::warning::Stock apply skipped — no Shopify location configured");
+        } else {
+          console.log(
+            `✅ Stock: ${result.ok} updated, ${result.miss} variant not found in Shopify, ${result.failed} failed, ${result.skipNoStock} no Amrod stock row, ${result.matchedRows} SKU(s) with stock data`
+          );
+          if (result.matchedRows && !result.ok) {
+            console.log(
+              "::warning::No stock levels applied — check variant SKUs match Amrod stock fullCode"
+            );
+          }
+        }
+      } catch (e) {
+        console.error("::warning title=Stock apply failed::", e?.message || e);
       }
     }
   }

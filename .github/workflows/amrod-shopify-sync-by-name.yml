@@ -26,6 +26,11 @@ on:
         required: false
         type: boolean
         default: true
+      apply_stock:
+        description: "Apply variant stock from Amrod /Stock/ after product import"
+        required: false
+        type: boolean
+        default: true
       concurrency:
         description: "Concurrent product workers"
         required: false
@@ -52,6 +57,7 @@ jobs:
       REQUEST_DELAY_MS: "120"
       IMAGE_MIN_INTERVAL_MS: "350"
       SHOPIFY_PRICE_DELAY_MS: "150"
+      STOCK_APPLY_DELAY_MS: "120"
 
     steps:
       - name: Checkout repo
@@ -111,6 +117,9 @@ jobs:
           fi
           if [ "${{ inputs.apply_prices }}" != "true" ]; then
             extra="$extra --no-apply-prices"
+          fi
+          if [ "${{ inputs.apply_stock }}" != "true" ]; then
+            extra="$extra --no-apply-stock"
           fi
           if [ -n "${PRODUCT_CODE:-}" ]; then
             node sync-by-product-name.js --code "$PRODUCT_CODE" --name "$PRODUCT_NAME" $extra
