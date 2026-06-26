@@ -110,6 +110,23 @@ input:focus {
   font-size: 1rem;
 }
 
+.preview-sync-banner {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.preview-sync-banner.success {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.preview-sync-banner a {
+  color: inherit;
+  font-weight: 600;
+}
+
 .preview-summary {
   margin: 0 0 16px;
   padding: 14px 16px;

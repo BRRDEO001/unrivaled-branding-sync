@@ -4,11 +4,13 @@ import {
   createShopifyProduct,
   updateShopifyVariant,
   createShopifyVariant,
+  createShopifyVariantsBulkGraphql,
   createShopifyProductImage,
   updateInventoryItemMeasurement,
   setInventoryItemTracked,
   setInventoryLevel,
   getPrimaryLocationId,
+  SHOPIFY_REST_MAX_VARIANTS,
 } from "./shopify.js";
 import { mapAmrodToShopifyProduct } from "./mapper.js";
 import { logImageFailure, logProductFailure } from "./logger.js";
@@ -135,6 +137,16 @@ function buildColourToImagesMap(amrod) {
   return map;
 }
 
+function getOptionNames(amrod) {
+  const list = Array.isArray(amrod?.variants) ? amrod.variants : [];
+  const hasColour = list.some((v) => v.codeColourName || v.codeColour);
+  const hasSize = list.some((v) => v.codeSizeName || v.codeSize);
+  const names = [];
+  if (hasColour) names.push("Color");
+  if (hasSize) names.push("Size");
+  return names;
+}
+
 function buildDesiredVariants(amrod) {
   const list = Array.isArray(amrod.variants) ? amrod.variants : [];
   if (!list.length) return [];
@@ -191,6 +203,8 @@ export async function runSingleProductImportPipeline(product, logger) {
   const categoryTags = buildCategoryTags(product.categories || []);
 
   const payload = mapAmrodToShopifyProduct(product, categoryTags);
+  const desiredVariants = buildDesiredVariants(product);
+  const optionNames = getOptionNames(product);
 
   const handleBase = slugify(product.productName || amrodCode);
   payload.product.handle = `${handleBase}-${slugify(amrodCode)}`.slice(0, 255);
@@ -214,12 +228,27 @@ export async function runSingleProductImportPipeline(product, logger) {
     }
   );
 
-  const shopifyProduct = await createShopifyProduct(payload, product);
+  // REST create accepts one variant; remaining variants are added after (REST ≤100, then GraphQL).
+  const createPayload = {
+    product: {
+      ...payload.product,
+      variants: desiredVariants.length
+        ? [desiredVariants[0]]
+        : [{ sku: amrodCode, option1: "Default", inventory_management: "shopify" }],
+    },
+  };
+
+  if (desiredVariants.length > SHOPIFY_REST_MAX_VARIANTS) {
+    console.log(
+      `📊 ${amrodCode}: ${desiredVariants.length} variant(s) — REST creates first ${SHOPIFY_REST_MAX_VARIANTS}, GraphQL bulk for the rest`
+    );
+  }
+
+  const shopifyProduct = await createShopifyProduct(createPayload, product);
 
   const productId = shopifyProduct.id;
   const defaultVariantId = shopifyProduct.variants?.[0]?.id;
 
-  const desiredVariants = buildDesiredVariants(product);
   let variants = [];
 
   if (!desiredVariants.length) {
@@ -237,8 +266,29 @@ export async function runSingleProductImportPipeline(product, logger) {
     const first = await updateShopifyVariant(defaultVariantId, desiredVariants[0]);
     variants.push(first);
 
-    for (let i = 1; i < desiredVariants.length; i++) {
+    const restEnd = Math.min(desiredVariants.length, SHOPIFY_REST_MAX_VARIANTS);
+    for (let i = 1; i < restEnd; i++) {
       variants.push(await createShopifyVariant(productId, desiredVariants[i]));
+    }
+
+    if (desiredVariants.length > SHOPIFY_REST_MAX_VARIANTS) {
+      const overflow = desiredVariants.slice(SHOPIFY_REST_MAX_VARIANTS);
+      const bulkCreated = await createShopifyVariantsBulkGraphql(
+        productId,
+        overflow,
+        optionNames
+      );
+      const overflowBySku = new Map(overflow.map((v) => [v.sku, v]));
+      for (const v of bulkCreated) {
+        const source = overflowBySku.get(v.sku) || {};
+        variants.push({
+          ...v,
+          option1: source.option1 ?? v.option1,
+          option2: source.option2 ?? v.option2,
+          weight: source.weight,
+          weight_unit: "kg",
+        });
+      }
     }
   }
 

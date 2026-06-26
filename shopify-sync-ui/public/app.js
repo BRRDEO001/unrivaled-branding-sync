@@ -36,6 +36,22 @@ function hidePreview() {
   previewResultsEl.innerHTML = "";
 }
 
+function showPreviewSyncBanner(message, actionsUrl) {
+  previewResultsEl.querySelector("[data-sync-banner]")?.remove();
+
+  const link = actionsUrl
+    ? ` <a href="${escapeHtml(actionsUrl)}" target="_blank" rel="noopener">View on GitHub Actions</a>`
+    : "";
+
+  const banner = document.createElement("div");
+  banner.className = "preview-sync-banner success";
+  banner.setAttribute("data-sync-banner", "");
+  banner.innerHTML = `${escapeHtml(message || "Sync started.")}${link}`;
+
+  previewResultsEl.prepend(banner);
+  previewResultsEl.classList.remove("hidden");
+}
+
 function isEmbeddedInShopify() {
   const params = new URLSearchParams(window.location.search);
   return Boolean(params.get("host") || params.get("shop"));
@@ -343,15 +359,7 @@ async function runSync() {
       throw new Error(data.error || `Request failed (${res.status})`);
     }
 
-    const link = data.actionsUrl
-      ? `<a href="${data.actionsUrl}" target="_blank" rel="noopener">View on GitHub Actions</a>`
-      : "";
-
-    showStatus(
-      `${data.message || "Sync started."} ${link}`.trim(),
-      "success",
-      Boolean(link)
-    );
+    showPreviewSyncBanner(data.message, data.actionsUrl);
   } catch (e) {
     showStatus(String(e.message || e), "error");
   } finally {

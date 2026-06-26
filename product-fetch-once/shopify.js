@@ -204,6 +204,107 @@ export const createShopifyVariant = async (productId, variantBody) => {
   return res.variant;
 };
 
+/** REST Admin API supports at most 100 variants per product; use GraphQL above this. */
+export const SHOPIFY_REST_MAX_VARIANTS =
+  Number(process.env.SHOPIFY_REST_MAX_VARIANTS ?? 100) || 100;
+
+const BULK_VARIANTS_MUTATION = `
+  mutation ProductVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+    productVariantsBulkCreate(productId: $productId, variants: $variants) {
+      productVariants {
+        id
+        legacyResourceId
+        sku
+        selectedOptions { name value }
+        inventoryItem {
+          id
+          legacyResourceId
+        }
+      }
+      userErrors { field message }
+    }
+  }
+`;
+
+function restVariantToBulkGraphqlInput(variantBody, optionNames) {
+  const optionValues = [];
+  if (variantBody.option1 && optionNames[0]) {
+    optionValues.push({ optionName: optionNames[0], name: variantBody.option1 });
+  }
+  if (variantBody.option2 && optionNames[1]) {
+    optionValues.push({ optionName: optionNames[1], name: variantBody.option2 });
+  }
+
+  const weightKg = Number(variantBody.weight ?? 0);
+
+  return {
+    optionValues,
+    inventoryItem: {
+      sku: variantBody.sku,
+      tracked: true,
+      measurement: {
+        weight: { value: weightKg, unit: "KILOGRAMS" },
+      },
+    },
+  };
+}
+
+function mapBulkGraphqlVariant(node) {
+  const invLegacy =
+    node.inventoryItem?.legacyResourceId != null
+      ? Number(node.inventoryItem.legacyResourceId)
+      : legacyFromGid(node.inventoryItem?.id);
+
+  const selected = node.selectedOptions || [];
+  const byName = Object.fromEntries(selected.map((o) => [o.name, o.value]));
+
+  return {
+    id: Number(node.legacyResourceId),
+    sku: node.sku,
+    inventory_item_id: invLegacy,
+    option1: byName.Color ?? byName.Colour ?? null,
+    option2: byName.Size ?? null,
+  };
+}
+
+/**
+ * Create variants 101+ via GraphQL (REST is capped at 100 variants per product).
+ */
+export async function createShopifyVariantsBulkGraphql(productId, variantBodies, optionNames) {
+  if (!variantBodies?.length) return [];
+
+  const productGid = String(productId).startsWith("gid://")
+    ? productId
+    : `gid://shopify/Product/${productId}`;
+
+  const batchSize = 100;
+  const created = [];
+
+  for (let i = 0; i < variantBodies.length; i += batchSize) {
+    const batch = variantBodies.slice(i, i + batchSize);
+    const variants = batch.map((body) => restVariantToBulkGraphqlInput(body, optionNames));
+
+    const data = await shopifyGraphql(BULK_VARIANTS_MUTATION, {
+      productId: productGid,
+      variants,
+    });
+
+    const result = data?.productVariantsBulkCreate;
+    const userErrors = result?.userErrors || [];
+    if (userErrors.length) {
+      throw new Error(
+        `productVariantsBulkCreate userErrors: ${JSON.stringify(userErrors)}`
+      );
+    }
+
+    for (const node of result?.productVariants || []) {
+      created.push(mapBulkGraphqlVariant(node));
+    }
+  }
+
+  return created;
+}
+
 export const deleteShopifyProduct = async (legacyProductId) => {
   await shopifyFetch(`products/${legacyProductId}.json`, "DELETE");
 };
