@@ -25,9 +25,10 @@ body {
 }
 
 .page {
-  max-width: 640px;
+  width: 100%;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 24px 20px 48px;
 }
 
 .header h1 {
@@ -109,10 +110,69 @@ input:focus {
   font-size: 1rem;
 }
 
-.preview-meta {
-  margin: 0 0 12px;
+.preview-summary {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--success-bg);
+  color: var(--success-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.preview-summary--empty {
+  background: #f6f6f7;
+  color: var(--text);
+}
+
+.preview-summary--empty span {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-bottom: 12px;
+}
+
+.preview-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.preview-checkbox {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 4px;
+  cursor: pointer;
+}
+
+.preview-checkbox input,
+.preview-select-all input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.preview-name {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
 }
 
 .preview-list {
@@ -126,6 +186,72 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
   background: #fafbfb;
+}
+
+.preview-item-main {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.preview-image {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.preview-image--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.preview-item-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.preview-name:hover {
+  color: var(--primary);
+}
+
+.preview-code,
+.preview-meta-inline {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.preview-meta {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.preview-variant-summary-wrap {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-variant-summary {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.preview-variant-summary:last-child {
+  margin-bottom: 0;
+}
+
+.preview-variant-summary strong {
+  font-weight: 600;
+  margin-right: 6px;
 }
 
 .preview-item strong {

@@ -135,73 +135,132 @@ async function requestHeaders() {
   return headers;
 }
 
-function renderPreviewItem(item) {
-  const variantLines = (item.variants || [])
-    .map((v) => {
-      const bits = [v.fullCode, v.colour, v.size].filter(Boolean);
-      return bits.length ? `<li>${escapeHtml(bits.join(" · "))}</li>` : "";
-    })
-    .filter(Boolean)
-    .join("");
+function getSelectedProducts() {
+  return [...previewResultsEl.querySelectorAll(".preview-select:checked")].map((el) => ({
+    fullCode: el.value,
+    productName: el.dataset.productName || "",
+  }));
+}
+
+function updatePreviewSelectionSummary() {
+  const summaryEl = previewResultsEl.querySelector("[data-preview-summary]");
+  const selectAllEl = previewResultsEl.querySelector("#previewSelectAll");
+  if (!summaryEl) return;
+
+  const boxes = [...previewResultsEl.querySelectorAll(".preview-select")];
+  const selected = boxes.filter((el) => el.checked).length;
+  const total = boxes.length;
+
+  summaryEl.textContent = `Found ${total} product(s). ${selected} selected for sync.`;
+
+  if (selectAllEl) {
+    selectAllEl.checked = selected > 0 && selected === total;
+    selectAllEl.indeterminate = selected > 0 && selected < total;
+  }
+}
+
+function renderVariantSummary(item) {
+  const lines = [];
+
+  if (item.colours?.length) {
+    lines.push(
+      `<p class="preview-variant-summary"><strong>Color:</strong> ${escapeHtml(item.colours.join(", "))}</p>`
+    );
+  }
+  if (item.sizes?.length) {
+    lines.push(
+      `<p class="preview-variant-summary"><strong>Size:</strong> ${escapeHtml(item.sizes.join(", "))}</p>`
+    );
+  }
+
+  if (!lines.length) {
+    return `<p class="preview-meta-inline">${escapeHtml(item.variantCount)} variant(s)</p>`;
+  }
+
+  return `<div class="preview-variant-summary-wrap">${lines.join("")}</div>`;
+}
+
+function renderPreviewItem(item, index) {
+  const imageHtml = item.imageUrl
+    ? `<img class="preview-image" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" />`
+    : `<div class="preview-image preview-image--empty">No image</div>`;
 
   return `
     <article class="preview-item">
-      <strong>${escapeHtml(item.fullCode || item.simpleCode || "Unknown code")}</strong>
-      <div>${escapeHtml(item.productName || "")}</div>
-      <dl>
-        <dt>Brand</dt><dd>${escapeHtml(item.brand || "—")}</dd>
-        <dt>Variants</dt><dd>${escapeHtml(item.variantCount)}</dd>
-        <dt>SKUs</dt><dd>${escapeHtml((item.skus || []).join(", ") || "—")}</dd>
-      </dl>
-      ${variantLines ? `<ul class="preview-suggestions">${variantLines}</ul>` : ""}
+      <div class="preview-item-main">
+        <label class="preview-checkbox">
+          <input
+            type="checkbox"
+            class="preview-select"
+            id="preview-select-${index}"
+            value="${escapeHtml(item.fullCode || "")}"
+            data-product-name="${escapeHtml(item.productName)}"
+            checked
+          />
+        </label>
+        ${imageHtml}
+        <div class="preview-item-copy">
+          <label class="preview-name" for="preview-select-${index}">
+            ${escapeHtml(item.productName || "Unnamed product")}
+          </label>
+          <p class="preview-code">${escapeHtml(item.fullCode || "")}</p>
+          <p class="preview-meta-inline">${escapeHtml(item.variantCount)} variant combination(s)</p>
+        </div>
+      </div>
+      ${renderVariantSummary(item)}
     </article>
   `;
 }
 
 function renderPreview(data) {
-  const suggestions = [];
-
-  if (data.caseMismatch) {
-    suggestions.push(
-      `<p class="preview-meta">No exact match, but found the same name with different casing: <button type="button" data-name="${escapeHtml(data.caseMismatch)}">${escapeHtml(data.caseMismatch)}</button></p>`
-    );
-  }
-
-  if (data.similarNames?.length) {
-    suggestions.push(
-      `<p class="preview-meta">Similar Amrod names:</p><ul class="preview-suggestions">${data.similarNames
-        .map(
-          (name) =>
-            `<li><button type="button" data-name="${escapeHtml(name)}">${escapeHtml(name)}</button></li>`
-        )
-        .join("")}</ul>`
-    );
-  }
-
   if (!data.matchCount) {
     previewResultsEl.innerHTML = `
-      <h2>No Amrod matches</h2>
-      <p class="preview-meta">Searched ${escapeHtml(data.catalogSize)} product(s) for "${escapeHtml(data.searchName)}".</p>
-      ${suggestions.join("")}
+      <div class="preview-summary preview-summary--empty">
+        <strong>No Amrod matches</strong>
+        <span>Searched ${escapeHtml(data.catalogSize)} product(s) for names containing "${escapeHtml(data.searchName)}".</span>
+      </div>
     `;
     previewResultsEl.classList.remove("hidden");
     return;
   }
 
+  const truncatedNote = data.truncated
+    ? `<p class="preview-meta">Showing first ${escapeHtml(data.matchCount)} matches. Refine your search for more specific results.</p>`
+    : "";
+
   previewResultsEl.innerHTML = `
-    <h2>${escapeHtml(data.matchCount)} Amrod match(es)</h2>
-    <p class="preview-meta">From ${escapeHtml(data.catalogSize)} product(s) in the Amrod catalog.</p>
+    <div class="preview-summary" data-preview-summary>
+      Found ${escapeHtml(data.matchCount)} product(s). ${escapeHtml(data.matchCount)} selected for sync.
+    </div>
+    <div class="preview-toolbar">
+      <label class="preview-select-all">
+        <input type="checkbox" id="previewSelectAll" checked />
+        Select all
+      </label>
+      <span class="preview-meta">Names containing "${escapeHtml(data.searchName)}" · ${escapeHtml(data.catalogSize)} in catalog</span>
+    </div>
+    ${truncatedNote}
     <div class="preview-list">${data.matches.map(renderPreviewItem).join("")}</div>
   `;
   previewResultsEl.classList.remove("hidden");
+
+  previewResultsEl.querySelector("#previewSelectAll")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    previewResultsEl.querySelectorAll(".preview-select").forEach((box) => {
+      box.checked = checked;
+    });
+    updatePreviewSelectionSummary();
+  });
+
+  previewResultsEl.querySelectorAll(".preview-select").forEach((box) => {
+    box.addEventListener("change", updatePreviewSelectionSummary);
+  });
 }
 
-previewResultsEl.addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-name]");
-  if (!btn) return;
-  productNameEl.value = btn.dataset.name || "";
-  hidePreview();
-  productNameEl.focus();
+previewResultsEl.addEventListener("change", (e) => {
+  if (e.target.matches(".preview-select")) {
+    updatePreviewSelectionSummary();
+  }
 });
 
 async function runPreview() {
@@ -210,7 +269,7 @@ async function runPreview() {
 
   const productName = productNameEl.value.trim();
   if (!productName) {
-    showStatus("Enter the exact Amrod product name.", "error");
+    showStatus("Enter a product name to search.", "error");
     productNameEl.focus();
     return;
   }
@@ -239,10 +298,8 @@ async function runPreview() {
     }
 
     renderPreview(data);
-    if (data.matchCount) {
-      showStatus(`Found ${data.matchCount} Amrod product(s). Review below, then click Sync.`, "success");
-    } else {
-      showStatus("No exact Amrod match. Check similar names below.", "error");
+    if (!data.matchCount) {
+      showStatus("No matches. Try a shorter or different search term.", "error");
     }
   } catch (e) {
     showStatus(String(e.message || e), "error");
@@ -256,16 +313,15 @@ async function runPreview() {
 async function runSync() {
   hideStatus();
 
-  const productName = productNameEl.value.trim();
-  if (!productName) {
-    showStatus("Enter the exact Amrod product name.", "error");
-    productNameEl.focus();
+  const products = getSelectedProducts().filter((p) => p.fullCode || p.productName);
+  if (!products.length) {
+    showStatus("Preview products first, then select at least one checkbox to sync.", "error");
     return;
   }
 
   syncBtn.disabled = true;
   previewBtn.disabled = true;
-  syncBtn.textContent = "Starting sync…";
+  syncBtn.textContent = `Starting ${products.length} sync(s)…`;
 
   try {
     const headers = await requestHeaders();
@@ -278,7 +334,7 @@ async function runSync() {
     const res = await fetch("/api/sync", {
       method: "POST",
       headers,
-      body: JSON.stringify({ productName }),
+      body: JSON.stringify({ products }),
     });
 
     const data = await res.json();
@@ -288,7 +344,7 @@ async function runSync() {
     }
 
     const link = data.actionsUrl
-      ? `<a href="${data.actionsUrl}" target="_blank" rel="noopener">View progress</a>`
+      ? `<a href="${data.actionsUrl}" target="_blank" rel="noopener">View on GitHub Actions</a>`
       : "";
 
     showStatus(

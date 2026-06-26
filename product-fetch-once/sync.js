@@ -120,6 +120,17 @@ export function filterProductsByExactName(products, searchName) {
   return products.filter((p) => normalizeProductName(p.productName) === needle);
 }
 
+/** Single catalog row by Amrod fullCode or simpleCode. */
+export function filterProductsByFullCode(products, productCode) {
+  const code = String(productCode || "").trim();
+  if (!code || !Array.isArray(products)) return [];
+  return products.filter((p) => {
+    const full = String(p?.fullCode || "").trim();
+    const simple = String(p?.simpleCode || "").trim();
+    return full === code || simple === code;
+  });
+}
+
 export async function syncProductList(products, { logger, stage = "syncAllProducts" } = {}) {
   const CONCURRENCY = Number(process.env.CONCURRENCY || 4);
   let done = 0;

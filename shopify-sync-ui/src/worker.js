@@ -1,5 +1,5 @@
 import { authorizeRequest } from "./shopify-auth.js";
-import { triggerSyncWorkflow } from "./github-trigger.js";
+import { triggerSyncWorkflows } from "./github-trigger.js";
 import { previewAmrodProducts } from "./amrod-preview.js";
 
 const CORS_HEADERS = {
@@ -42,7 +42,15 @@ export default {
       }
 
       try {
-        const result = await triggerSyncWorkflow(env, body.productName);
+        const products = Array.isArray(body.products)
+          ? body.products
+          : Array.isArray(body.productNames)
+            ? body.productNames.map((name) => ({ productName: name }))
+            : body.productName
+              ? [{ productName: body.productName, fullCode: body.fullCode || "" }]
+              : [];
+
+        const result = await triggerSyncWorkflows(env, products);
         return json({ ...result, triggeredBy: auth.method, shop: auth.shop || null });
       } catch (e) {
         return json({ ok: false, error: String(e?.message || e) }, 502);

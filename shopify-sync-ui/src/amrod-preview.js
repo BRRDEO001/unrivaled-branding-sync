@@ -3,78 +3,100 @@ const AMROD_PRODUCTS_ENDPOINT =
   "https://vendorapi.amrod.co.za/api/v1/Products/GetProductsAndBranding";
 
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_PREVIEW_MATCHES = 50;
+
 let catalogCache = { at: 0, products: null };
 
 export function normalizeProductName(name) {
   return String(name || "").trim();
 }
 
-export function filterProductsByExactName(products, searchName) {
-  const needle = normalizeProductName(searchName);
+/** Case-insensitive contains match on productName. */
+export function filterProductsByNameContains(products, searchName) {
+  const needle = normalizeProductName(searchName).toLowerCase();
   if (!needle || !Array.isArray(products)) return [];
-  return products.filter((p) => normalizeProductName(p.productName) === needle);
+
+  return products
+    .filter((p) => normalizeProductName(p?.productName).toLowerCase().includes(needle))
+    .sort((a, b) =>
+      normalizeProductName(a?.productName).localeCompare(normalizeProductName(b?.productName))
+    )
+    .slice(0, MAX_PREVIEW_MATCHES);
 }
 
-function skuCandidates(product) {
-  const out = new Set();
-  const add = (s) => {
-    const v = String(s || "").trim();
-    if (v) out.add(v);
-  };
-  add(product?.fullCode);
-  add(product?.simpleCode);
-  for (const v of product?.variants || []) {
-    add(v?.fullCode);
-    add(v?.simpleCode);
+function pickBestImageUrl(urls) {
+  if (!Array.isArray(urls) || urls.length === 0) return null;
+  const sorted = [...urls].sort(
+    (a, b) => Number(b?.width ?? 0) - Number(a?.width ?? 0)
+  );
+  return sorted[0]?.url ?? null;
+}
+
+function pickProductImageUrl(product) {
+  const images = Array.isArray(product?.images) ? product.images : [];
+  const defaultImg = images.find((i) => i?.isDefault) || images[0];
+  const fromDefault = pickBestImageUrl(defaultImg?.urls);
+  if (fromDefault) return fromDefault;
+
+  for (const img of images) {
+    const url = pickBestImageUrl(img?.urls);
+    if (url) return url;
   }
-  return [...out];
+
+  for (const c of product?.colourImages || []) {
+    const colourImg = (c?.images || []).find((i) => i?.isDefault) || (c?.images || [])[0];
+    const url = pickBestImageUrl(colourImg?.urls);
+    if (url) return url;
+  }
+
+  return null;
+}
+
+function pickVariantColour(variant) {
+  const value =
+    variant?.codeColourName ||
+    variant?.colourName ||
+    variant?.colorName ||
+    variant?.codeColour ||
+    variant?.colour ||
+    null;
+  return value ? String(value).trim() : null;
+}
+
+function pickVariantSize(variant) {
+  const value =
+    variant?.codeSizeName || variant?.sizeName || variant?.codeSize || variant?.size || null;
+  return value ? String(value).trim() : null;
+}
+
+function uniqueVariantValues(variants, pick) {
+  const seen = new Set();
+  const out = [];
+
+  for (const variant of variants) {
+    const value = pick(variant);
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+
+  return out;
 }
 
 function summarizeProduct(product) {
   const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const imageUrl = pickProductImageUrl(product);
+
   return {
     productName: normalizeProductName(product?.productName),
     fullCode: product?.fullCode || product?.simpleCode || null,
-    simpleCode: product?.simpleCode || null,
-    brand: product?.brandName || product?.brand || null,
-    variantCount: variants.length,
-    skus: skuCandidates(product),
-    variants: variants.slice(0, 12).map((v) => ({
-      fullCode: v?.fullCode || v?.simpleCode || null,
-      colour: v?.colourName || v?.colorName || v?.colour || null,
-      size: v?.sizeName || v?.size || null,
-    })),
+    imageUrl,
+    variantCount: variants.length || 1,
+    colours: uniqueVariantValues(variants, pickVariantColour),
+    sizes: uniqueVariantValues(variants, pickVariantSize),
   };
-}
-
-function findSimilarNames(products, searchName, limit = 8) {
-  const needle = normalizeProductName(searchName).toLowerCase();
-  if (!needle) return [];
-
-  const names = new Set();
-  for (const p of products) {
-    const name = normalizeProductName(p?.productName);
-    if (!name) continue;
-    const lower = name.toLowerCase();
-    if (lower.includes(needle) || needle.includes(lower)) {
-      names.add(name);
-    }
-  }
-
-  return [...names].sort((a, b) => a.localeCompare(b)).slice(0, limit);
-}
-
-function findCaseMismatchName(products, searchName) {
-  const needle = normalizeProductName(searchName).toLowerCase();
-  if (!needle) return null;
-
-  for (const p of products) {
-    const name = normalizeProductName(p?.productName);
-    if (name && name.toLowerCase() === needle && name !== normalizeProductName(searchName)) {
-      return name;
-    }
-  }
-  return null;
 }
 
 async function fetchAmrodToken(env) {
@@ -156,18 +178,16 @@ export async function previewAmrodProducts(env, productName) {
   }
 
   const catalog = await fetchAmrodCatalog(env);
-  const matches = filterProductsByExactName(catalog, searchName).map(summarizeProduct);
-  const caseMismatch = matches.length ? null : findCaseMismatchName(catalog, searchName);
-  const similarNames =
-    matches.length || caseMismatch ? [] : findSimilarNames(catalog, searchName);
+  const allMatches = filterProductsByNameContains(catalog, searchName);
+  const truncated = allMatches.length >= MAX_PREVIEW_MATCHES;
 
   return {
     ok: true,
     searchName,
+    searchMode: "contains",
     catalogSize: catalog.length,
-    matchCount: matches.length,
-    matches,
-    caseMismatch,
-    similarNames,
+    matchCount: allMatches.length,
+    truncated,
+    matches: allMatches.map(summarizeProduct),
   };
 }

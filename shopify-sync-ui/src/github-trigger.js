@@ -5,7 +5,7 @@ const WORKFLOW_INPUTS = {
   concurrency: "4",
 };
 
-export async function triggerSyncWorkflow(env, productName) {
+export async function triggerSyncWorkflow(env, { productName = "", fullCode = "" } = {}) {
   const repo = env.GITHUB_REPO;
   const workflowFile = env.GITHUB_WORKFLOW_FILE || "amrod-shopify-sync-by-name.yml";
   const token = env.GITHUB_PAT;
@@ -15,7 +15,8 @@ export async function triggerSyncWorkflow(env, productName) {
   }
 
   const name = String(productName || "").trim();
-  if (!name) throw new Error("Product name is required");
+  const code = String(fullCode || "").trim();
+  if (!code && !name) throw new Error("Product code or name is required");
 
   const url = `https://api.github.com/repos/${repo}/actions/workflows/${workflowFile}/dispatches`;
 
@@ -33,6 +34,7 @@ export async function triggerSyncWorkflow(env, productName) {
       inputs: {
         ...WORKFLOW_INPUTS,
         product_name: name,
+        product_code: code,
       },
     }),
   });
@@ -51,15 +53,89 @@ export async function triggerSyncWorkflow(env, productName) {
       actionsUrl = await findLatestRunUrl(env);
     }
 
+    const label = code || name;
     return {
       ok: true,
-      message: `Sync started for "${name}".`,
+      message: `Sync started for ${code ? `code ${code}` : `"${name}"`}.`,
       actionsUrl,
+      fullCode: code || null,
+      productName: name || null,
+      label,
     };
   }
 
   const text = await res.text();
   throw new Error(`GitHub API ${res.status}: ${text || res.statusText}`);
+}
+
+function normalizeProductSelection(raw) {
+  if (typeof raw === "string") {
+    return { fullCode: "", productName: raw.trim() };
+  }
+  return {
+    fullCode: String(raw?.fullCode || raw?.code || "").trim(),
+    productName: String(raw?.productName || raw?.name || "").trim(),
+  };
+}
+
+export async function triggerSyncWorkflows(env, products) {
+  const list = Array.isArray(products) ? products : [products];
+  const seen = new Set();
+  const selections = [];
+
+  for (const raw of list) {
+    const item = normalizeProductSelection(raw);
+    const key = item.fullCode || item.productName;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    selections.push(item);
+  }
+
+  if (!selections.length) {
+    throw new Error("Select at least one product to sync");
+  }
+
+  const repo = env.GITHUB_REPO;
+  const runs = [];
+
+  for (const item of selections) {
+    try {
+      const result = await triggerSyncWorkflow(env, item);
+      runs.push({
+        fullCode: item.fullCode || null,
+        productName: item.productName || null,
+        ok: true,
+        actionsUrl: result.actionsUrl,
+      });
+    } catch (e) {
+      runs.push({
+        fullCode: item.fullCode || null,
+        productName: item.productName || null,
+        ok: false,
+        error: String(e?.message || e),
+      });
+    }
+  }
+
+  const started = runs.filter((r) => r.ok);
+  if (!started.length) {
+    throw new Error(runs[0]?.error || "All sync requests failed");
+  }
+
+  const failed = runs.filter((r) => !r.ok);
+  let message = `Started ${started.length} sync job(s).`;
+  if (failed.length) {
+    message += ` ${failed.length} failed to start.`;
+  }
+
+  return {
+    ok: true,
+    message,
+    startedCount: started.length,
+    failedCount: failed.length,
+    runs,
+    actionsUrl: `https://github.com/${repo}/actions`,
+  };
 }
 
 async function findLatestRunUrl(env) {

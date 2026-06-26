@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 /**
- * Fetch the full Amrod catalog, filter by exact productName, and sync matches to Shopify.
+ * Fetch the full Amrod catalog, filter by product code or exact productName, sync to Shopify.
  *
  * Uses the same import pipeline as the full sync (runSingleProductImportPipeline).
- * Optionally deletes existing Shopify products by SKU first, and applies variant prices
- * from Amrod /Prices/ after import.
- *
- * Usage:
- *   PRODUCT_NAME="My Product" node sync-by-product-name.js
- *   node sync-by-product-name.js --name "My Product" [--dry-run] [--no-delete-existing] [--no-apply-prices]
- *
- * Env: same as sync.js (CONCURRENCY, IMAGES_MODE, SHOPIFY_*, AMROD_*, etc.)
+ * Prefer --code for a single catalog row (matches preview selection). --name syncs all
+ * rows with that exact productName.
  */
 import { fileURLToPath } from "url";
 import path from "path";
@@ -20,6 +14,7 @@ import {
   makeLogger,
   writeFailedProductsJson,
   filterProductsByExactName,
+  filterProductsByFullCode,
   normalizeProductName,
   syncProductList,
 } from "./sync.js";
@@ -32,6 +27,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 function parseArgs(argv) {
   const out = {
     name: normalizeProductName(process.env.PRODUCT_NAME || ""),
+    code: String(process.env.PRODUCT_CODE || "").trim(),
     dryRun: false,
     deleteExisting: true,
     applyPrices: true,
@@ -41,6 +37,8 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === "--name") {
       out.name = normalizeProductName(argv[++i]);
+    } else if (a === "--code") {
+      out.code = String(argv[++i] || "").trim();
     } else if (a === "--dry-run") {
       out.dryRun = true;
     } else if (a === "--no-delete-existing") {
@@ -48,18 +46,18 @@ function parseArgs(argv) {
     } else if (a === "--no-apply-prices") {
       out.applyPrices = false;
     } else if (a === "--help" || a === "-h") {
-      console.log(`sync-by-product-name.js --name "Exact Product Name" [--dry-run] [--no-delete-existing] [--no-apply-prices]
-  Also reads PRODUCT_NAME from the environment.
-  Match is exact on trimmed productName (case-sensitive).
-  Default: delete existing Shopify product by SKU, then import; apply prices after import.`);
+      console.log(`sync-by-product-name.js [--code ALT-1101 | --name "Exact Product Name"] [--dry-run] [--no-delete-existing] [--no-apply-prices]
+  --code   Preferred: sync one Amrod catalog row by fullCode/simpleCode.
+  --name   Sync all rows with exact productName (case-sensitive, trimmed).
+  Env: PRODUCT_CODE, PRODUCT_NAME, CONCURRENCY, SHOPIFY_*, AMROD_*, etc.`);
       process.exit(0);
     } else {
       throw new Error(`Unknown arg: ${a}`);
     }
   }
 
-  if (!out.name) {
-    throw new Error('Product name required — set PRODUCT_NAME or pass --name "..."');
+  if (!out.code && !out.name) {
+    throw new Error('Product code or name required — use --code "ALT-1101" or --name "..."');
   }
 
   return out;
@@ -88,12 +86,30 @@ async function deleteExistingShopifyProduct(product) {
 }
 
 function summarizeMatches(products) {
-  console.log(`🔎 Found ${products.length} Amrod product(s) with this exact name:`);
+  console.log(`🔎 Found ${products.length} Amrod product(s) to sync:`);
   for (const p of products) {
     const code = p.fullCode || p.simpleCode || "?";
+    const name = normalizeProductName(p.productName) || "(no name)";
     const variants = Array.isArray(p.variants) ? p.variants.length : 0;
-    console.log(`  • ${code} (${variants} variant(s))`);
+    console.log(`  • ${code} — ${name} (${variants} variant(s))`);
   }
+}
+
+function resolveMatches(allProducts, args) {
+  if (args.code) {
+    const matches = filterProductsByFullCode(allProducts, args.code);
+    if (!matches.length) {
+      console.log(`::warning::No product found with code "${args.code}"`);
+    }
+    return matches;
+  }
+
+  const matches = filterProductsByExactName(allProducts, args.name);
+  if (!matches.length) {
+    console.log(`::warning::No products found with exact name "${args.name}"`);
+    console.log("Tip: name match is case-sensitive and trimmed.");
+  }
+  return matches;
 }
 
 async function main() {
@@ -105,7 +121,11 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`🔍 Searching Amrod catalog for exact productName: "${args.name}"`);
+  if (args.code) {
+    console.log(`🔍 Searching Amrod catalog for code: "${args.code}"`);
+  } else {
+    console.log(`🔍 Searching Amrod catalog for exact productName: "${args.name}"`);
+  }
 
   let allProducts;
   try {
@@ -118,11 +138,9 @@ async function main() {
 
   console.log(`📬 Amrod catalog: ${allProducts.length} product(s) total`);
 
-  const matches = filterProductsByExactName(allProducts, args.name);
+  const matches = resolveMatches(allProducts, args);
   if (!matches.length) {
-    console.log(`::warning::No products found with exact name "${args.name}"`);
-    console.log("Tip: name match is case-sensitive and trimmed. Copy the name exactly from Amrod.");
-    process.exit(0);
+    process.exit(1);
   }
 
   summarizeMatches(matches);
@@ -159,35 +177,55 @@ async function main() {
 
   await syncProductList(matches, { logger, stage: "syncByProductName" });
 
+  const failSummary = writeFailedProductsJson(logger.paths.failPath);
+  const failCount = failSummary?.count || 0;
+
+  if (failCount) {
+    console.log(
+      `::error title=Import failures::${failCount} product(s) failed — see ${failSummary.path}`
+    );
+  }
+
   if (args.applyPrices) {
-    console.log("💰 Fetching Amrod prices and applying for matched SKUs…");
-    try {
-      const token = await fetchAmrodToken();
-      const priceRows = await fetchAmrodPricesAll(token);
-      const skuSet = buildSkuSetFromProducts(matches);
-      const result = await applyPricesForSkuSet(priceRows, skuSet);
+    if (failCount) {
       console.log(
-        `✅ Prices: ${result.ok} applied, ${result.miss} variant not found, ${result.skipBadPrice} bad price row(s), ${result.matchedRows} price row(s) matched SKU set`
+        `::warning::Skipping price apply — ${failCount} product(s) failed import (variants not in Shopify yet)`
       );
-    } catch (e) {
-      console.error("::warning title=Price apply failed::", e?.message || e);
+    } else {
+      console.log("💰 Fetching Amrod prices and applying for matched SKUs…");
+      try {
+        const token = await fetchAmrodToken();
+        const priceRows = await fetchAmrodPricesAll(token);
+        const skuSet = buildSkuSetFromProducts(matches);
+        const result = await applyPricesForSkuSet(priceRows, skuSet);
+        console.log(
+          `✅ Prices: ${result.ok} applied, ${result.miss} variant not found, ${result.skipBadPrice} bad price row(s), ${result.matchedRows} price row(s) matched SKU set`
+        );
+        if (result.miss && !result.ok) {
+          console.log(
+            "::warning::No prices applied — check that variants exist in Shopify with matching SKUs"
+          );
+        }
+      } catch (e) {
+        console.error("::warning title=Price apply failed::", e?.message || e);
+      }
     }
   }
 
-  try {
-    const summary = writeFailedProductsJson(logger.paths.failPath);
-    if (summary) {
-      console.log(`📝 Failed-products JSON: ${summary.path} (${summary.count} unique SKU(s))`);
-    }
-  } catch (e) {
-    console.warn(`::warning::Failed to write failed-products JSON: ${e?.message || e}`);
+  if (failSummary) {
+    console.log(`📝 Failed-products JSON: ${failSummary.path} (${failSummary.count} unique SKU(s))`);
   }
 
-  console.log("🎉 Sync by product name finished");
+  if (failCount) {
+    console.error(`🔥 Sync finished with ${failCount} failure(s)`);
+    process.exit(1);
+  }
+
+  console.log("🎉 Sync finished successfully");
 }
 
 main().catch((err) => {
-  console.error("🔥 Sync by product name failed:", err?.message || err);
+  console.error("🔥 Sync failed:", err?.message || err);
   console.error(err?.stack);
   process.exit(1);
 });

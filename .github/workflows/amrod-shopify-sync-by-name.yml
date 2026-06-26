@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       product_name:
-        description: "Exact Amrod product name (case-sensitive, trimmed). All catalog rows with this exact productName are synced."
-        required: true
+        description: "Exact Amrod productName (fallback when product_code is empty)."
+        required: false
+        type: string
+      product_code:
+        description: "Amrod fullCode — syncs this exact catalog row (preferred)."
+        required: false
         type: string
       dry_run:
         description: "List matches only — do not sync to Shopify"
@@ -42,6 +46,7 @@ jobs:
       AMROD_CUSTOMER_CODE: ${{ secrets.AMROD_CUSTOMER_CODE }}
 
       PRODUCT_NAME: ${{ inputs.product_name }}
+      PRODUCT_CODE: ${{ inputs.product_code }}
       CONCURRENCY: ${{ inputs.concurrency }}
       IMAGES_MODE: "default+colours"
       REQUEST_DELAY_MS: "120"
@@ -67,17 +72,21 @@ jobs:
             exit 1
           fi
 
-      - name: Validate product name input
+      - name: Validate sync input
         shell: bash
         run: |
           set -euo pipefail
-          name="${PRODUCT_NAME:-}"
-          trimmed="$(printf '%s' "$name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-          if [ -z "$trimmed" ]; then
-            echo "::error title=Missing product name::Enter an exact Amrod productName in the workflow input."
+          name="$(printf '%s' "${PRODUCT_NAME:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          code="$(printf '%s' "${PRODUCT_CODE:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          if [ -z "$name" ] && [ -z "$code" ]; then
+            echo "::error title=Missing input::Set product_code (preferred) or product_name."
             exit 1
           fi
-          echo "Will search for exact productName: \"$trimmed\""
+          if [ -n "$code" ]; then
+            echo "Will sync Amrod code: \"$code\""
+          else
+            echo "Will sync exact productName: \"$name\""
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -103,7 +112,11 @@ jobs:
           if [ "${{ inputs.apply_prices }}" != "true" ]; then
             extra="$extra --no-apply-prices"
           fi
-          node sync-by-product-name.js --name "$PRODUCT_NAME" $extra
+          if [ -n "${PRODUCT_CODE:-}" ]; then
+            node sync-by-product-name.js --code "$PRODUCT_CODE" --name "$PRODUCT_NAME" $extra
+          else
+            node sync-by-product-name.js --name "$PRODUCT_NAME" $extra
+          fi
 
       - name: Upload logs
         if: always() && inputs.dry_run == false
